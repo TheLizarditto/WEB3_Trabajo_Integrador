@@ -1,2 +1,2 @@
-/** Entidades que representarán las órdenes y sus datos asociados. */
+/** Entidades JPA de maestros, camiones, cisternas, órdenes, lecturas y transiciones. */
 package ar.edu.iua.integrador.model;

@@ -36,8 +36,38 @@ Respuesta esperada, con estado HTTP `200`:
 {"status":"UP","application":"integrador"}
 ```
 
-Este endpoint indica que el proceso web responde. La persistencia se incorporará
-en la siguiente entrega.
+Este endpoint indica que el proceso web responde. Para arrancar la aplicación
+ahora también es necesario configurar la base de datos indicada abajo.
+
+## Entrega 2 — Modelo y persistencia
+
+Se incorporan las entidades y repositorios del proyecto completo para maestros
+(clientes, choferes, productos y camiones), cisternas, órdenes, lecturas
+(`LoadDetail`) e historial de transiciones. Los maestros usan herencia JPA
+`JOINED`; cada cisterna se identifica por camión y posición. Las órdenes tienen
+control de versión y consultas con bloqueo para futuras operaciones de negocio.
+
+Flyway aplica las migraciones de `src/main/resources/db/migration` al arrancar:
+`V1` crea el esquema del alcance, `V2` permite códigos externos nulos y `V3`
+separa los tipos de maestros conservando sus identificadores y relaciones.
+Estas migraciones están adaptadas a esta entrega: no incluyen usuarios,
+configuración de alarmas ni alarmas del proyecto completo. Hibernate valida el
+esquema; no crea ni modifica tablas automáticamente.
+
+Crear una base MySQL vacía y definir las credenciales antes de ejecutar:
+
+```shell
+export DB_URL='jdbc:mysql://localhost:3306/iw3_integrador'
+export DB_USER='integrador'
+export DB_PASSWORD='tu-clave-local'
+java -jar target/integrador.jar
+```
+
+El usuario de la base debe poder crear y alterar tablas para aplicar las
+migraciones. Usar una base propia para esta entrega, sin compartir el historial
+Flyway con el proyecto completo, ya que el esquema inicial tiene otro alcance.
+Las pruebas de persistencia usan H2 en modo MySQL, sin requerir un servidor
+externo, y se ejecutan con `mvn verify`.
 
 ## Configuración por entorno
 
@@ -47,6 +77,9 @@ Spring Boot lee estas variables del entorno del proceso:
 |---|---|---|
 | `SPRING_PROFILES_ACTIVE` | `dev` | Selecciona `dev` o `prod`. |
 | `SERVER_PORT` | `8080` | Puerto HTTP de la aplicación. |
+| `DB_URL` | Sin predeterminado | URL JDBC de MySQL. |
+| `DB_USER` | Sin predeterminado | Usuario de la base de datos. |
+| `DB_PASSWORD` | Sin predeterminado | Contraseña de la base de datos. |
 
 También se pueden indicar al ejecutar el JAR:
 
@@ -76,7 +109,8 @@ integrador/
     └── resources/
         ├── application.properties
         ├── application-dev.properties
-        └── application-prod.properties
+        ├── application-prod.properties
+        └── db/migration/       Migraciones SQL de Flyway
 ```
 
 Los paquetes reservados para las próximas entregas se documentan mediante
