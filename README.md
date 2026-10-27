@@ -1,118 +1,165 @@
 # Trabajo Integrador — Ingeniería Web 3
 
-Backend para la administración de órdenes de carga de gas líquido.
+Backend para administrar órdenes de carga de gas líquido, desarrollado con
+Java 21 y Spring Boot. La implementación se organiza por capas y avanza mediante
+entregas incrementales.
 
-## Entrega 1 — Base del backend
+## Estado actual
 
-Primera entrega del integrante A, correspondiente al 27/10/2026. Incluye la
-estructura Spring Boot/Maven, configuración por entorno, paquetes por
-responsabilidad y un endpoint para comprobar que la aplicación está funcionando.
+La primera entrega establece la estructura Maven, los perfiles de configuración
+y un endpoint de salud. La segunda incorpora el modelo del dominio, los
+repositorios JPA y las migraciones de la base de datos.
+
+| Componente | Implementación |
+|---|---|
+| Maestros | Clientes, choferes, productos y camiones. |
+| Cisternas | Capacidades por camión y posición. |
+| Órdenes | Relaciones con los maestros, fechas, pesos y estado. |
+| Lecturas | Registro de masa, densidad, temperatura y caudal. |
+| Transiciones | Historial de estados con fecha, actor y observación. |
+
+En esta etapa se puede verificar el arranque y probar la persistencia. Los
+paquetes de negocio y DTO quedan preparados para las próximas entregas; aún no
+se exponen operaciones REST para administrar las entidades.
 
 ## Requisitos
 
 - JDK 21.
 - Maven 3.9 o superior.
+- MySQL para ejecutar la aplicación.
 
-## Compilar y ejecutar
+Las pruebas automatizadas utilizan H2 en modo MySQL y no necesitan un servidor
+de base de datos externo.
+
+## Compilación y pruebas
 
 Desde la raíz del repositorio:
 
 ```shell
 cd integrador
 mvn verify
-java -jar target/integrador.jar
 ```
 
-El perfil predeterminado es `dev` y el puerto predeterminado es `8080`.
-Para comprobar el arranque, consultar:
+El comando compila, ejecuta las pruebas y genera `target/integrador.jar`. Las
+pruebas verifican las relaciones entre entidades, el registro de lecturas y
+transiciones, las restricciones de integridad y la conservación de datos al
+aplicar migraciones.
+
+Para ejecutar solamente las pruebas:
 
 ```shell
-curl http://localhost:8080/api/v1/health
+mvn test
 ```
 
-Respuesta esperada, con estado HTTP `200`:
+## Configuración de la base de datos
 
-```json
-{"status":"UP","application":"integrador"}
-```
+Crear una base MySQL vacía y un usuario con permisos para crear y alterar tablas,
+así como para consultar y modificar datos. La aplicación utiliza una base
+exclusiva; Flyway registra allí las migraciones aplicadas.
 
-Este endpoint indica que el proceso web responde. Para arrancar la aplicación
-ahora también es necesario configurar la base de datos indicada abajo.
-
-## Entrega 2 — Modelo y persistencia
-
-Se incorporan las entidades y repositorios del proyecto completo para maestros
-(clientes, choferes, productos y camiones), cisternas, órdenes, lecturas
-(`LoadDetail`) e historial de transiciones. Los maestros usan herencia JPA
-`JOINED`; cada cisterna se identifica por camión y posición. Las órdenes tienen
-control de versión y consultas con bloqueo para futuras operaciones de negocio.
-
-Flyway aplica las migraciones de `src/main/resources/db/migration` al arrancar:
-`V1` crea el esquema del alcance, `V2` permite códigos externos nulos y `V3`
-separa los tipos de maestros conservando sus identificadores y relaciones.
-Estas migraciones están adaptadas a esta entrega: no incluyen usuarios,
-configuración de alarmas ni alarmas del proyecto completo. Hibernate valida el
-esquema; no crea ni modifica tablas automáticamente.
-
-Crear una base MySQL vacía y definir las credenciales antes de ejecutar:
+Definir estas variables en la terminal donde se ejecutará el backend:
 
 ```shell
 export DB_URL='jdbc:mysql://localhost:3306/iw3_integrador'
 export DB_USER='integrador'
 export DB_PASSWORD='tu-clave-local'
+```
+
+Los valores del ejemplo deben coincidir con la base y el usuario creados. Las
+credenciales se leen desde el entorno y no se guardan en los archivos de
+configuración del repositorio.
+
+## Ejecución
+
+Desde `integrador/`, después de compilar y configurar la conexión:
+
+```shell
 java -jar target/integrador.jar
 ```
 
-El usuario de la base debe poder crear y alterar tablas para aplicar las
-migraciones. Usar una base propia para esta entrega, sin compartir el historial
-Flyway con el proyecto completo, ya que el esquema inicial tiene otro alcance.
-Las pruebas de persistencia usan H2 en modo MySQL, sin requerir un servidor
-externo, y se ejecutan con `mvn verify`.
+El perfil predeterminado es `dev` y el puerto HTTP es `8080`. Al iniciar, Flyway
+aplica las migraciones pendientes y Hibernate valida que el esquema corresponda
+con las entidades.
 
-## Configuración por entorno
+Para comprobar que el proceso web responde, consultar desde otra terminal:
 
-Spring Boot lee estas variables del entorno del proceso:
+```shell
+curl http://localhost:8080/api/v1/health
+```
+
+La respuesta esperada tiene estado HTTP `200`:
+
+```json
+{"status":"UP","application":"integrador"}
+```
+
+El backend se detiene con `Ctrl+C`. Los datos persistidos permanecen en MySQL
+para el siguiente arranque.
+
+## Perfiles y variables de entorno
 
 | Variable | Predeterminado | Uso |
 |---|---|---|
-| `SPRING_PROFILES_ACTIVE` | `dev` | Selecciona `dev` o `prod`. |
+| `SPRING_PROFILES_ACTIVE` | `dev` | Selecciona el perfil `dev` o `prod`. |
 | `SERVER_PORT` | `8080` | Puerto HTTP de la aplicación. |
-| `DB_URL` | Sin predeterminado | URL JDBC de MySQL. |
-| `DB_USER` | Sin predeterminado | Usuario de la base de datos. |
-| `DB_PASSWORD` | Sin predeterminado | Contraseña de la base de datos. |
+| `DB_URL` | Obligatoria | URL JDBC de MySQL. |
+| `DB_USER` | Obligatoria | Usuario de la base de datos. |
+| `DB_PASSWORD` | Obligatoria | Contraseña de la base de datos. |
 
-También se pueden indicar al ejecutar el JAR:
+`dev` habilita logs DEBUG del proyecto. `prod` utiliza INFO. Las respuestas de
+error ocultan los detalles internos en ambos perfiles. La conexión JDBC trabaja
+con UTC y Jackson usa la zona horaria de Argentina.
+
+También es posible elegir el perfil y el puerto al ejecutar el JAR:
 
 ```shell
 java -jar target/integrador.jar --spring.profiles.active=prod --server.port=8081
 ```
 
-`dev` habilita logs DEBUG del proyecto. `prod` usa INFO y oculta detalles internos
-en las respuestas de error. Los archivos de configuración compartidos no contienen
-credenciales. Las fechas se configuran para Argentina.
+## Modelo y migraciones
 
-## Estructura
+Los maestros comparten identidad y código externo mediante herencia JPA
+`JOINED`, con una tabla específica para cada tipo. Cada cisterna tiene una clave
+compuesta por camión y posición. Las órdenes incorporan control de versión y
+los repositorios ofrecen consultas con bloqueo para futuras operaciones de
+negocio.
+
+Las migraciones se encuentran en
+`integrador/src/main/resources/db/migration` y se ejecutan en este orden:
+
+| Versión | Cambio |
+|---|---|
+| `V1` | Crea las tablas, relaciones y restricciones iniciales. |
+| `V2` | Permite códigos externos nulos en maestros y órdenes. |
+| `V3` | Separa los tipos de maestros conservando identificadores y relaciones. |
+
+Hibernate usa `ddl-auto=validate`: los cambios de esquema se realizan mediante
+migraciones SQL, sin creación ni actualización automática de tablas por JPA.
+
+## Organización del código
 
 ```text
 integrador/
 ├── pom.xml
-└── src/main/
-    ├── java/ar/edu/iua/integrador/
-    │   ├── Application.java
-    │   ├── controllers/        Rutas y controladores REST
-    │   ├── business/           Lógica de negocio
-    │   │   └── exception/      Excepciones de negocio
-    │   ├── model/              Entidades del dominio
-    │   │   └── persistence/    Repositorios
-    │   ├── dto/                Contratos de entrada y salida
-    │   └── util/               Utilidades compartidas
-    └── resources/
-        ├── application.properties
-        ├── application-dev.properties
-        ├── application-prod.properties
-        └── db/migration/       Migraciones SQL de Flyway
+└── src/
+    ├── main/
+    │   ├── java/ar/edu/iua/integrador/
+    │   │   ├── Application.java
+    │   │   ├── controllers/        Rutas y controladores REST
+    │   │   ├── business/           Lógica de negocio
+    │   │   │   └── exception/      Excepciones de negocio
+    │   │   ├── model/              Entidades del dominio
+    │   │   │   └── persistence/    Repositorios JPA
+    │   │   ├── dto/                Contratos de entrada y salida
+    │   │   └── util/               Utilidades compartidas
+    │   └── resources/
+    │       ├── application.properties
+    │       ├── application-dev.properties
+    │       ├── application-prod.properties
+    │       └── db/migration/       Migraciones SQL de Flyway
+    └── test/java/                  Pruebas de persistencia y migraciones
 ```
 
-Los paquetes reservados para las próximas entregas se documentan mediante
-`package-info.java`. El punto de entrada está en el paquete raíz para que Spring
-detecte los componentes de sus subpaquetes.
+El punto de entrada está en el paquete raíz para que Spring detecte los
+componentes de sus subpaquetes. Los paquetes reservados se documentan mediante
+`package-info.java`.
