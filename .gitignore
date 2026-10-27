@@ -1,0 +1,17 @@
+# Compilación y entorno local
+**/target/
+*.log
+.idea/
+.vscode/
+*.iml
+.classpath
+.project
+.settings/
+
+# Secretos locales
+.env
+.env.*
+!.env.example
+*.local.properties
+*.pem
+*.key
