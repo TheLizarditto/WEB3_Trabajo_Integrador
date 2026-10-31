@@ -19,6 +19,9 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
     boolean existsByOrderNumber(Long number);
 
+    // Las URLs de órdenes usan el número de orden (lo que conocen SAP y el TMS), no el id.
+    Optional<Order> findByOrderNumber(Long number);
+
     boolean existsByExternalCode(String code);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

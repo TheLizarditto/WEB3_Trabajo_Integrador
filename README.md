@@ -18,9 +18,9 @@ repositorios JPA y las migraciones de la base de datos.
 | Lecturas | Registro de masa, densidad, temperatura y caudal. |
 | Transiciones | Historial de estados con fecha, actor y observación. |
 
-En esta etapa se puede verificar el arranque y probar la persistencia. Los
-paquetes de negocio y DTO quedan preparados para las próximas entregas; aún no
-se exponen operaciones REST para administrar las entidades.
+La tercera incorpora la recepción de órdenes desde SAP, con sincronización de
+maestros, validaciones y documentación Swagger (ver
+[Endpoints disponibles](#endpoints-disponibles)).
 
 ## Requisitos
 
@@ -95,6 +95,90 @@ La respuesta esperada tiene estado HTTP `200`:
 
 El backend se detiene con `Ctrl+C`. Los datos persistidos permanecen en MySQL
 para el siguiente arranque.
+
+## Endpoints disponibles
+
+| Método | URL | Qué hace | Respuestas |
+|---|---|---|---|
+| `GET` | `/api/v1/health` | Indica que el proceso web responde. | `200` |
+| `POST` | `/api/v1/orders` | Recibe una orden de SAP, sincroniza camión, chofer, cliente y producto, y la crea en estado 1. | `201` con header `Location`, `400` datos inválidos, `409` número o código de orden repetido, o maestro que ya tiene otro código externo |
+| `GET` | `/api/v1/orders/{orderNumber}` | Devuelve la orden con ese número de orden. | `200`, `404` si no existe |
+
+Las URLs de órdenes usan el **número de orden** que envía SAP, no el `id`
+interno de la base. El header `Location` del `POST` sigue el mismo formato, por
+ejemplo `/api/v1/orders/501`.
+
+Los errores se manejan de forma centralizada en `RestExceptionHandler` y se
+devuelven con el formato `StandartResponse`; los nuevos controllers no necesitan
+`try/catch`.
+
+## Cómo probar en local
+
+1. Levantar MySQL en Docker, reemplazando `<clave-root>` y `<clave-app>` por
+   claves propias:
+
+   ```shell
+   docker run -d --name iw3-mysql \
+     -e MYSQL_ROOT_PASSWORD='<clave-root>' \
+     -e MYSQL_DATABASE=iw3_integrador \
+     -e MYSQL_USER=integrador \
+     -e MYSQL_PASSWORD='<clave-app>' \
+     -p 3306:3306 \
+     mysql:8.4
+   ```
+
+2. Compilar y definir la conexión desde `integrador/`:
+
+   ```shell
+   mvn clean package
+   export DB_URL='jdbc:mysql://localhost:3306/iw3_integrador'
+   export DB_USER='integrador'
+   export DB_PASSWORD='<clave-app>'
+   ```
+
+   Si la conexión falla con `Public Key Retrieval is not allowed`, agregar
+   `?allowPublicKeyRetrieval=true&useSSL=false` al final de `DB_URL`.
+
+3. Arrancar con `java -jar target/integrador.jar` y abrir Swagger en
+   <http://localhost:8080/swagger-ui.html>.
+
+Ejemplo válido para `POST /api/v1/orders`:
+
+```json
+{
+  "orderNumber": 501,
+  "externalCode": "SAP-501",
+  "scheduledAt": "2026-11-05T10:00:00Z",
+  "preset": 15000,
+  "truck": {
+    "externalCode": "T-1",
+    "plate": "AA123BB",
+    "description": "Scania R450",
+    "tanks": [10000, 5000]
+  },
+  "driver": {
+    "externalCode": "D-1",
+    "name": "Ana",
+    "lastName": "Pérez",
+    "document": "30111222"
+  },
+  "customer": {
+    "externalCode": "C-1",
+    "name": "Gas del Sur SA",
+    "contact": "Compras"
+  },
+  "product": {
+    "externalCode": "P-1",
+    "name": "GLP",
+    "description": "Gas licuado de petróleo"
+  }
+}
+```
+
+La patente debe estar en mayúsculas y sin espacios, con formato `AAA123` o
+`AA123BB`. El documento es opcional y, si se envía, debe tener 7 u 8 dígitos sin
+puntos. Los códigos externos son opcionales. `scheduledAt` debe incluir la zona
+horaria (por ejemplo `Z` o `-03:00`).
 
 ## Perfiles y variables de entorno
 
