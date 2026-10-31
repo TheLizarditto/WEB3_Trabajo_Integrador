@@ -22,6 +22,12 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     // Las URLs de órdenes usan el número de orden (lo que conocen SAP y el TMS), no el id.
     Optional<Order> findByOrderNumber(Long number);
 
+    // Para los cambios sobre una orden (tara, activación): bloquea la fila hasta el fin de la
+    // transacción, así dos pedidos simultáneos sobre la misma orden se atienden de a uno.
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select o from Order o where o.orderNumber=:number")
+    Optional<Order> lockByOrderNumber(@Param("number") Long number);
+
     boolean existsByExternalCode(String code);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

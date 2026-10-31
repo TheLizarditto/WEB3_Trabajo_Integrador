@@ -1,8 +1,12 @@
 package ar.edu.iua.integrador.business;
 
 import ar.edu.iua.integrador.business.exception.FoundException;
+import ar.edu.iua.integrador.business.exception.InvalidPasswordException;
+import ar.edu.iua.integrador.business.exception.InvalidStateException;
 import ar.edu.iua.integrador.business.exception.NotFoundException;
+import ar.edu.iua.integrador.dto.ActivationResponse;
 import ar.edu.iua.integrador.dto.SapOrderRequest;
+import ar.edu.iua.integrador.dto.TareResponse;
 import ar.edu.iua.integrador.model.Order;
 import ar.edu.iua.integrador.model.StateTransition;
 import ar.edu.iua.integrador.model.persistence.OrderRepository;
@@ -13,9 +17,12 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.security.SecureRandom;
 import java.time.Instant;
 
 /** Implementa las operaciones de órdenes. */
@@ -25,7 +32,15 @@ import java.time.Instant;
 public class OrderBusiness implements IOrderBusiness {
 
     private static final int STATE_PENDING_INITIAL_WEIGHING = 1;
+    private static final int STATE_WITH_INITIAL_WEIGHING = 2;
     private static final String ACTOR_SAP = "SAP";
+    private static final String ACTOR_TMS = "TMS";
+
+    // SecureRandom y no Random: la contraseña es un secreto y Random es predecible.
+    private static final SecureRandom RANDOM = new SecureRandom();
+    // BCrypt agrega una sal distinta a cada hash: con solo 100.000 contraseñas posibles, un hash sin
+    // sal (por ejemplo SHA-256) se rompe probándolas todas.
+    private static final PasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder();
 
     private final OrderRepository orderRepository;
     private final StateTransitionRepository transitionRepository;
@@ -98,6 +113,95 @@ public class OrderBusiness implements IOrderBusiness {
     public Order loadByOrderNumber(long orderNumber) throws NotFoundException {
         return orderRepository
                 .findByOrderNumber(orderNumber)
+                .orElseThrow(
+                        () ->
+                                NotFoundException.builder()
+                                        .message("No existe la orden número " + orderNumber)
+                                        .build());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public TareResponse registerTare(long orderNumber, double tare)
+            throws NotFoundException, InvalidStateException {
+        Order order = lockByOrderNumber(orderNumber);
+        if (order.getState() != STATE_PENDING_INITIAL_WEIGHING) {
+            throw InvalidStateException.builder()
+                    .message(
+                            "La orden "
+                                    + orderNumber
+                                    + " está en estado "
+                                    + order.getState()
+                                    + ": la tara solo se registra en estado "
+                                    + STATE_PENDING_INITIAL_WEIGHING)
+                    .build();
+        }
+
+        // %05d completa con ceros a la izquierda: 4217 queda "04217", siempre 5 dígitos.
+        String password = String.format("%05d", RANDOM.nextInt(100_000));
+
+        order.setTare(tare);
+        order.setInitialWeighedAt(Instant.now());
+        order.setActivationHash(PASSWORD_ENCODER.encode(password));
+        order.setState(STATE_WITH_INITIAL_WEIGHING);
+
+        StateTransition transition = new StateTransition();
+        transition.setOrderId(order.getId());
+        transition.setFromState(STATE_PENDING_INITIAL_WEIGHING);
+        transition.setToState(STATE_WITH_INITIAL_WEIGHING);
+        transition.setActor(ACTOR_TMS);
+        transition.setObservation("Tara: " + tare + " kg");
+        transition.setOccurredAt(order.getInitialWeighedAt());
+        transitionRepository.save(transition);
+
+        // La contraseña no se loguea nunca: los logs no son un lugar seguro.
+        log.info("Tara registrada para la orden {}: {} kg", orderNumber, tare);
+        return new TareResponse(orderNumber, tare, password);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ActivationResponse activate(long orderNumber, String password)
+            throws NotFoundException, InvalidStateException, InvalidPasswordException {
+        Order order = lockByOrderNumber(orderNumber);
+        if (order.getState() != STATE_WITH_INITIAL_WEIGHING) {
+            throw InvalidStateException.builder()
+                    .message(
+                            "La orden "
+                                    + orderNumber
+                                    + " está en estado "
+                                    + order.getState()
+                                    + ": el surtidor solo se activa en estado "
+                                    + STATE_WITH_INITIAL_WEIGHING)
+                    .build();
+        }
+        // startedAt se completa con la primera lectura válida. Hasta entonces se puede activar de
+        // nuevo (si el surtidor perdió la respuesta, sin el preset no puede cargar); después no,
+        // porque la carga ya está en marcha.
+        if (order.getStartedAt() != null) {
+            throw InvalidStateException.builder()
+                    .message("La carga de la orden " + orderNumber + " ya comenzó")
+                    .build();
+        }
+        if (!PASSWORD_ENCODER.matches(password, order.getActivationHash())) {
+            log.warn("Contraseña de activación incorrecta para la orden {}", orderNumber);
+            throw InvalidPasswordException.builder()
+                    .message("Contraseña de activación incorrecta para la orden " + orderNumber)
+                    .build();
+        }
+
+        // Si se activa de nuevo se conserva la fecha de la primera activación.
+        if (order.getActivatedAt() == null) {
+            order.setActivatedAt(Instant.now());
+        }
+        log.info("Surtidor activado para la orden {}", orderNumber);
+        return new ActivationResponse(orderNumber, order.getPreset());
+    }
+
+    // Busca la orden bloqueándola: solo sirve dentro de un método @Transactional.
+    private Order lockByOrderNumber(long orderNumber) throws NotFoundException {
+        return orderRepository
+                .lockByOrderNumber(orderNumber)
                 .orElseThrow(
                         () ->
                                 NotFoundException.builder()

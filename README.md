@@ -22,6 +22,10 @@ La tercera incorpora la recepción de órdenes desde SAP, con sincronización de
 maestros, validaciones y documentación Swagger (ver
 [Endpoints disponibles](#endpoints-disponibles)).
 
+La cuarta incorpora el registro de la tara (pesaje inicial), con la generación
+de la contraseña de activación, y la activación del surtidor, que devuelve el
+preset.
+
 ## Requisitos
 
 - JDK 21.
@@ -103,6 +107,8 @@ para el siguiente arranque.
 | `GET` | `/api/v1/health` | Indica que el proceso web responde. | `200` |
 | `POST` | `/api/v1/orders` | Recibe una orden de SAP, sincroniza camión, chofer, cliente y producto, y la crea en estado 1. | `201` con header `Location`, `400` datos inválidos, `409` número o código de orden repetido, o maestro que ya tiene otro código externo |
 | `GET` | `/api/v1/orders/{orderNumber}` | Devuelve la orden con ese número de orden. | `200`, `404` si no existe |
+| `POST` | `/api/v1/orders/{orderNumber}/tare` | Registra la tara que envía el TMS, genera la contraseña de activación y pasa la orden a estado 2. | `200` con la contraseña, `400` tara inválida, `404` si no existe, `409` si la orden no está en estado 1 |
+| `POST` | `/api/v1/orders/{orderNumber}/activation` | Valida la contraseña del surtidor y devuelve el preset. | `200` con el preset, `400` contraseña sin 5 dígitos, `403` contraseña incorrecta, `404` si no existe, `409` si la orden no está en estado 2 o la carga ya comenzó |
 
 Las URLs de órdenes usan el **número de orden** que envía SAP, no el `id`
 interno de la base. El header `Location` del `POST` sigue el mismo formato, por
@@ -180,6 +186,32 @@ La patente debe estar en mayúsculas y sin espacios, con formato `AAA123` o
 puntos. Los códigos externos son opcionales. `scheduledAt` debe incluir la zona
 horaria (por ejemplo `Z` o `-03:00`).
 
+Con la orden en estado 1, registrar la tara (peso del camión vacío, en kg):
+
+```shell
+curl -X POST http://localhost:8080/api/v1/orders/501/tare \
+  -H 'Content-Type: application/json' \
+  -d '{"tare": 8500}'
+```
+
+La respuesta incluye la contraseña de activación de 5 dígitos, por ejemplo
+`{"orderNumber":501,"tare":8500.0,"password":"04217"}`. Es la única vez que se
+devuelve: en la base se guarda solo su hash BCrypt y no aparece en la consulta
+de la orden.
+
+Con esa contraseña, activar el surtidor:
+
+```shell
+curl -X POST http://localhost:8080/api/v1/orders/501/activation \
+  -H 'Content-Type: application/json' \
+  -d '{"password": "04217"}'
+```
+
+La respuesta devuelve el preset: `{"orderNumber":501,"preset":15000.0}`. La
+activación se puede repetir con la misma contraseña mientras no haya empezado la
+carga, por si el surtidor no recibió la respuesta; se conserva la fecha de la
+primera activación.
+
 ## Perfiles y variables de entorno
 
 | Variable | Predeterminado | Uso |
@@ -216,6 +248,7 @@ Las migraciones se encuentran en
 | `V1` | Crea las tablas, relaciones y restricciones iniciales. |
 | `V2` | Permite códigos externos nulos en maestros y órdenes. |
 | `V3` | Separa los tipos de maestros conservando identificadores y relaciones. |
+| `V4` | Permite tara y pesaje final nulos, para distinguir una orden sin pesar de un peso 0. |
 
 Hibernate usa `ddl-auto=validate`: los cambios de esquema se realizan mediante
 migraciones SQL, sin creación ni actualización automática de tablas por JPA.

@@ -47,7 +47,10 @@ public class Order {
     @Column(nullable = false)
     private double preset;
 
-    private double tare, finalWeight, lastMass, lastDensity, lastTemperature, lastFlow;
+    // Double y no double: null significa que la balanza todavía no mandó ese pesaje.
+    private Double tare, finalWeight;
+
+    private double lastMass, lastDensity, lastTemperature, lastFlow;
 
     @Column(nullable = false)
     private Instant receivedAt;

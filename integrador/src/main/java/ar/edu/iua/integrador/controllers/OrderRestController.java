@@ -2,8 +2,14 @@ package ar.edu.iua.integrador.controllers;
 
 import ar.edu.iua.integrador.business.IOrderBusiness;
 import ar.edu.iua.integrador.business.exception.FoundException;
+import ar.edu.iua.integrador.business.exception.InvalidPasswordException;
+import ar.edu.iua.integrador.business.exception.InvalidStateException;
 import ar.edu.iua.integrador.business.exception.NotFoundException;
+import ar.edu.iua.integrador.dto.ActivationRequest;
+import ar.edu.iua.integrador.dto.ActivationResponse;
 import ar.edu.iua.integrador.dto.SapOrderRequest;
+import ar.edu.iua.integrador.dto.TareRequest;
+import ar.edu.iua.integrador.dto.TareResponse;
 import ar.edu.iua.integrador.model.Order;
 import ar.edu.iua.integrador.util.StandartResponse;
 
@@ -90,5 +96,69 @@ public class OrderRestController {
                     long orderNumber)
             throws NotFoundException {
         return orderBusiness.loadByOrderNumber(orderNumber);
+    }
+
+    /** Registra la tara que manda el TMS y devuelve la contraseña de activación. */
+    @Operation(
+            summary = "Registrar la tara (pesaje inicial)",
+            description =
+                    "Guarda el peso del camión vacío, genera una contraseña de activación de 5"
+                            + " dígitos y pasa la orden a estado 2. La contraseña solo se devuelve"
+                            + " en esta respuesta: en la base se guarda su hash.")
+    @ApiResponse(responseCode = "200", description = "Tara registrada")
+    @ApiResponse(
+            responseCode = "400",
+            description = "La tara falta, no es un número o no es mayor a 0",
+            content = @Content(schema = @Schema(implementation = StandartResponse.class)))
+    @ApiResponse(
+            responseCode = "404",
+            description = "No existe una orden con ese número",
+            content = @Content(schema = @Schema(implementation = StandartResponse.class)))
+    @ApiResponse(
+            responseCode = "409",
+            description = "La orden no está en estado 1 (por ejemplo, ya tiene tara)",
+            content = @Content(schema = @Schema(implementation = StandartResponse.class)))
+    @PostMapping("/{orderNumber}/tare")
+    public TareResponse registerTare(
+            @Parameter(description = "Número de orden (el que mandó SAP)", example = "501")
+                    @PathVariable
+                    long orderNumber,
+            @Valid @RequestBody TareRequest request)
+            throws NotFoundException, InvalidStateException {
+        return orderBusiness.registerTare(orderNumber, request.getTare());
+    }
+
+    /** Activa el surtidor con la contraseña de la orden y devuelve el preset. */
+    @Operation(
+            summary = "Activar el surtidor",
+            description =
+                    "Valida la contraseña generada en la tara y devuelve el preset (kg a cargar)."
+                            + " Se puede repetir mientras no haya empezado la carga, por si el"
+                            + " surtidor no recibió la respuesta.")
+    @ApiResponse(responseCode = "200", description = "Contraseña correcta")
+    @ApiResponse(
+            responseCode = "400",
+            description = "La contraseña falta o no tiene 5 dígitos",
+            content = @Content(schema = @Schema(implementation = StandartResponse.class)))
+    @ApiResponse(
+            responseCode = "403",
+            description = "La contraseña no corresponde a la orden",
+            content = @Content(schema = @Schema(implementation = StandartResponse.class)))
+    @ApiResponse(
+            responseCode = "404",
+            description = "No existe una orden con ese número",
+            content = @Content(schema = @Schema(implementation = StandartResponse.class)))
+    @ApiResponse(
+            responseCode = "409",
+            description = "La orden no está en estado 2 o la carga ya comenzó",
+            content = @Content(schema = @Schema(implementation = StandartResponse.class)))
+    @PostMapping("/{orderNumber}/activation")
+    public ActivationResponse activate(
+            @Parameter(description = "Número de orden (el que mandó SAP)", example = "501")
+                    @PathVariable
+                    long orderNumber,
+            @Valid @RequestBody ActivationRequest request)
+            throws NotFoundException, InvalidStateException, InvalidPasswordException {
+        return orderBusiness.activate(orderNumber, request.getPassword());
     }
 }

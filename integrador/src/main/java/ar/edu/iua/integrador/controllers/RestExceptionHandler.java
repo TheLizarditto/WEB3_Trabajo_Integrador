@@ -2,6 +2,8 @@ package ar.edu.iua.integrador.controllers;
 
 import ar.edu.iua.integrador.business.exception.BusinessException;
 import ar.edu.iua.integrador.business.exception.FoundException;
+import ar.edu.iua.integrador.business.exception.InvalidPasswordException;
+import ar.edu.iua.integrador.business.exception.InvalidStateException;
 import ar.edu.iua.integrador.business.exception.NotFoundException;
 import ar.edu.iua.integrador.util.StandartResponse;
 import ar.edu.iua.integrador.util.StandartResponseBusiness;
@@ -36,6 +38,18 @@ public class RestExceptionHandler {
     @ExceptionHandler(FoundException.class)
     public ResponseEntity<StandartResponse> handleFound(FoundException ex) {
         return StandartResponseBusiness.build(HttpStatus.CONFLICT, ex.getMessage());
+    }
+
+    /** La operación no corresponde al estado de la orden: 409. */
+    @ExceptionHandler(InvalidStateException.class)
+    public ResponseEntity<StandartResponse> handleInvalidState(InvalidStateException ex) {
+        return StandartResponseBusiness.build(HttpStatus.CONFLICT, ex.getMessage());
+    }
+
+    /** La contraseña de activación no corresponde: 403. */
+    @ExceptionHandler(InvalidPasswordException.class)
+    public ResponseEntity<StandartResponse> handleInvalidPassword(InvalidPasswordException ex) {
+        return StandartResponseBusiness.build(HttpStatus.FORBIDDEN, ex.getMessage());
     }
 
     /** Error inesperado del negocio: 500. */
