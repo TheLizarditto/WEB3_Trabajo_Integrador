@@ -3,14 +3,18 @@ package ar.edu.iua.integrador.controllers;
 import ar.edu.iua.integrador.business.IOrderBusiness;
 import ar.edu.iua.integrador.business.exception.FoundException;
 import ar.edu.iua.integrador.business.exception.InvalidPasswordException;
+import ar.edu.iua.integrador.business.exception.InvalidDataException;
 import ar.edu.iua.integrador.business.exception.InvalidStateException;
 import ar.edu.iua.integrador.business.exception.NotFoundException;
 import ar.edu.iua.integrador.dto.ActivationRequest;
+import ar.edu.iua.integrador.dto.ReadingRequest;
+import ar.edu.iua.integrador.dto.ReadingResponse;
 import ar.edu.iua.integrador.dto.ActivationResponse;
 import ar.edu.iua.integrador.dto.SapOrderRequest;
 import ar.edu.iua.integrador.dto.TareRequest;
 import ar.edu.iua.integrador.dto.TareResponse;
 import ar.edu.iua.integrador.model.Order;
+import ar.edu.iua.integrador.model.LoadDetail;
 import ar.edu.iua.integrador.util.StandartResponse;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -34,6 +38,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.net.URI;
+import java.util.List;
 
 /**
  * Endpoints de órdenes de carga. Solo traduce HTTP ↔ negocio: no tiene try/catch porque las
@@ -127,6 +132,39 @@ public class OrderRestController {
             throws NotFoundException, InvalidStateException {
         return orderBusiness.registerTare(orderNumber, request.getTare());
     }
+
+    @Operation(
+            summary = "Registrar una lectura de carga",
+            description = "Recibe masa acumulada, densidad en g/cm3, temperatura y caudal. "
+                    + "La primera lectura válida inicia la carga; el historial se guarda según "
+                    + "integrador.readings.storage-interval-seconds.")
+    @ApiResponse(responseCode = "200", description = "Lectura aceptada o descartada")
+    @ApiResponse(responseCode = "400", description = "Datos incompletos o densidad fuera del rango 0 a 1 g/cm3",
+            content = @Content(schema = @Schema(implementation = StandartResponse.class)))
+    @ApiResponse(responseCode = "404", description = "No existe la orden",
+            content = @Content(schema = @Schema(implementation = StandartResponse.class)))
+    @ApiResponse(responseCode = "409", description = "La orden no está activada o no está en estado 2",
+            content = @Content(schema = @Schema(implementation = StandartResponse.class)))
+    @PostMapping("/{orderNumber}/readings")
+    public ReadingResponse registerReading(
+            @Parameter(description = "Número interno de orden (orderNumber)", example = "501")
+                    @PathVariable long orderNumber,
+            @Valid @RequestBody ReadingRequest request)
+            throws NotFoundException, InvalidStateException, InvalidDataException {
+        return orderBusiness.registerReading(orderNumber, request);
+    }
+
+    @Operation(summary = "Consultar el historial muestreado de lecturas")
+    @ApiResponse(responseCode = "200", description = "Historial de lecturas")
+    @ApiResponse(responseCode = "404", description = "No existe la orden",
+            content = @Content(schema = @Schema(implementation = StandartResponse.class)))
+    @GetMapping("/{orderNumber}/readings")
+    public List<LoadDetail> readings(
+            @Parameter(description = "Número interno de orden (orderNumber)", example = "501")
+                    @PathVariable long orderNumber) throws NotFoundException {
+        return orderBusiness.readings(orderNumber);
+    }
+
 
     /** Activa el surtidor con la contraseña de la orden y devuelve el preset. */
     @Operation(

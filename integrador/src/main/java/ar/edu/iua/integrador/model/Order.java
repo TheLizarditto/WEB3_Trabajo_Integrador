@@ -1,6 +1,7 @@
 package ar.edu.iua.integrador.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 import jakarta.persistence.*;
 
@@ -50,7 +51,10 @@ public class Order {
     // Double y no double: null significa que la balanza todavía no mandó ese pesaje.
     private Double tare, finalWeight;
 
-    private double lastMass, lastDensity, lastTemperature, lastFlow;
+    private Double lastMass;
+    @Schema(description = "Última densidad registrada, en g/cm3")
+    private Double lastDensity;
+    private Double lastTemperature, lastFlow;
 
     @Column(nullable = false)
     private Instant receivedAt;
@@ -69,7 +73,7 @@ public class Order {
     @Version private long version;
 
     public Double getEtaSeconds() {
-        return state == 2 && lastFlow > 0
+        return state == 2 && lastMass != null && lastFlow != null && lastFlow > 0
                 ? Math.max(0, (preset - lastMass) / lastFlow * 3600)
                 : null;
     }

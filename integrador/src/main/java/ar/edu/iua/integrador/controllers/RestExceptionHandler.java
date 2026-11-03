@@ -3,6 +3,7 @@ package ar.edu.iua.integrador.controllers;
 import ar.edu.iua.integrador.business.exception.BusinessException;
 import ar.edu.iua.integrador.business.exception.FoundException;
 import ar.edu.iua.integrador.business.exception.InvalidPasswordException;
+import ar.edu.iua.integrador.business.exception.InvalidDataException;
 import ar.edu.iua.integrador.business.exception.InvalidStateException;
 import ar.edu.iua.integrador.business.exception.NotFoundException;
 import ar.edu.iua.integrador.util.StandartResponse;
@@ -50,6 +51,12 @@ public class RestExceptionHandler {
     @ExceptionHandler(InvalidPasswordException.class)
     public ResponseEntity<StandartResponse> handleInvalidPassword(InvalidPasswordException ex) {
         return StandartResponseBusiness.build(HttpStatus.FORBIDDEN, ex.getMessage());
+    }
+
+    /** Dato numérico inválido: 400. */
+    @ExceptionHandler(InvalidDataException.class)
+    public ResponseEntity<StandartResponse> handleInvalidData(InvalidDataException ex) {
+        return StandartResponseBusiness.build(HttpStatus.BAD_REQUEST, ex.getMessage());
     }
 
     /** Error inesperado del negocio: 500. */

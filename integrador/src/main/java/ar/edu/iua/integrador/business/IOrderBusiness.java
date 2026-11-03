@@ -6,6 +6,11 @@ import ar.edu.iua.integrador.business.exception.InvalidStateException;
 import ar.edu.iua.integrador.business.exception.NotFoundException;
 import ar.edu.iua.integrador.dto.ActivationResponse;
 import ar.edu.iua.integrador.dto.SapOrderRequest;
+import ar.edu.iua.integrador.dto.ReadingRequest;
+import ar.edu.iua.integrador.dto.ReadingResponse;
+import ar.edu.iua.integrador.model.LoadDetail;
+import ar.edu.iua.integrador.business.exception.InvalidDataException;
+import java.util.List;
 import ar.edu.iua.integrador.dto.TareResponse;
 import ar.edu.iua.integrador.model.Order;
 
@@ -39,4 +44,11 @@ public interface IOrderBusiness {
      */
     ActivationResponse activate(long orderNumber, String password)
             throws NotFoundException, InvalidStateException, InvalidPasswordException;
+
+    /** Procesa una lectura de una orden activada en estado 2. */
+    ReadingResponse registerReading(long orderNumber, ReadingRequest reading)
+            throws NotFoundException, InvalidStateException, InvalidDataException;
+
+    /** Devuelve el historial muestreado de lecturas de la orden. */
+    List<LoadDetail> readings(long orderNumber) throws NotFoundException;
 }

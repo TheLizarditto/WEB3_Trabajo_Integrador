@@ -77,6 +77,11 @@ VALUES(201,NULL,1,'sap','Recepción anterior',CURRENT_TIMESTAMP)
         // V4: la orden no estaba pesada, así que su 0 pasa a null.
         assertThat(order.getTare()).isNull();
         assertThat(order.getFinalWeight()).isNull();
+        // V5: sin lectura previa, los last_* antiguos con 0 pasan a null.
+        assertThat(order.getLastMass()).isNull();
+        assertThat(order.getLastDensity()).isNull();
+        assertThat(order.getLastTemperature()).isNull();
+        assertThat(order.getLastFlow()).isNull();
         assertThat(order.getTruck().getId()).isEqualTo(101);
         assertThat(order.getTruck().getPlate()).isEqualTo("AA123BB");
         assertThat(order.getTruck().getCompartments()).containsExactly(10000.0, 5000.0);
