@@ -1,5 +1,6 @@
 package ar.edu.iua.integrador.model;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.persistence.*;
 
 import lombok.Getter;
@@ -23,7 +24,10 @@ public class LoadDetail {
     private Long orderId;
 
     @Column(nullable = false)
-    private double mass, density, temperature, flow;
+    private double mass;
+    @Schema(description = "Densidad registrada, en g/cm3")
+    private double density;
+    private double temperature, flow;
 
     @Column(nullable = false)
     private Instant receivedAt;

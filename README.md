@@ -280,3 +280,12 @@ integrador/
 El punto de entrada está en el paquete raíz para que Spring detecte los
 componentes de sus subpaquetes. Los paquetes reservados se documentan mediante
 `package-info.java`.
+
+
+## Lecturas de carga (commit 5)
+
+El surtidor envía `POST /api/v1/orders/{orderNumber}/readings` con `mass` (kg), `density` (g/cm3), `temperature` (°C) y `flow` (kg/h). La orden se identifica con su `orderNumber` interno. La densidad debe estar entre 0 y 1 g/cm3.
+
+Una lectura válida actualiza los últimos valores de la orden. La primera lectura válida completa `startedAt`; cada lectura válida actualiza `finishedAt`. El historial guarda la primera lectura y luego una por intervalo (10 segundos por defecto; configurable con `integrador.readings.storage-interval-seconds`). `GET /api/v1/orders/{orderNumber}/readings` devuelve ese historial.
+
+Caudal o masa no positivos, o una masa menor que la acumulada anterior, se responden como descartes (`accepted: false`) y no cambian la orden ni el historial. Densidad fuera de rango y campos faltantes son errores 400. La orden debe estar en estado 2 y activada.

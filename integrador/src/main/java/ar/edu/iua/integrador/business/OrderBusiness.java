@@ -2,12 +2,17 @@ package ar.edu.iua.integrador.business;
 
 import ar.edu.iua.integrador.business.exception.FoundException;
 import ar.edu.iua.integrador.business.exception.InvalidPasswordException;
+import ar.edu.iua.integrador.business.exception.InvalidDataException;
 import ar.edu.iua.integrador.business.exception.InvalidStateException;
 import ar.edu.iua.integrador.business.exception.NotFoundException;
 import ar.edu.iua.integrador.dto.ActivationResponse;
+import ar.edu.iua.integrador.dto.ReadingRequest;
+import ar.edu.iua.integrador.dto.ReadingResponse;
 import ar.edu.iua.integrador.dto.SapOrderRequest;
 import ar.edu.iua.integrador.dto.TareResponse;
 import ar.edu.iua.integrador.model.Order;
+import ar.edu.iua.integrador.model.LoadDetail;
+import ar.edu.iua.integrador.model.persistence.LoadDetailRepository;
 import ar.edu.iua.integrador.model.StateTransition;
 import ar.edu.iua.integrador.model.persistence.OrderRepository;
 import ar.edu.iua.integrador.model.persistence.StateTransitionRepository;
@@ -16,6 +21,7 @@ import ar.edu.iua.integrador.util.TextUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -23,7 +29,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 
 /** Implementa las operaciones de órdenes. */
 @Service
@@ -44,7 +52,11 @@ public class OrderBusiness implements IOrderBusiness {
 
     private final OrderRepository orderRepository;
     private final StateTransitionRepository transitionRepository;
+    private final LoadDetailRepository detailRepository;
     private final IMasterSyncBusiness masterSyncBusiness;
+
+    @Value("${integrador.readings.storage-interval-seconds:10}")
+    private long readingStorageIntervalSeconds;
 
     // Todo en una transacción: si algo falla, se deshacen también los maestros sincronizados.
     // rollbackFor hace falta porque nuestras excepciones son chequeadas, y por defecto Spring
@@ -196,6 +208,79 @@ public class OrderBusiness implements IOrderBusiness {
         }
         log.info("Surtidor activado para la orden {}", orderNumber);
         return new ActivationResponse(orderNumber, order.getPreset());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ReadingResponse registerReading(long orderNumber, ReadingRequest reading)
+            throws NotFoundException, InvalidStateException, InvalidDataException {
+        Order order = lockByOrderNumber(orderNumber);
+        if (order.getState() != STATE_WITH_INITIAL_WEIGHING) {
+            throw InvalidStateException.builder()
+                    .message("La orden " + orderNumber + " no está en estado 2")
+                    .build();
+        }
+        if (order.getActivatedAt() == null) {
+            throw InvalidStateException.builder()
+                    .message("Primero debe activarse la carga de la orden " + orderNumber)
+                    .build();
+        }
+        if (!Double.isFinite(reading.getMass())
+                || !Double.isFinite(reading.getDensity())
+                || !Double.isFinite(reading.getTemperature())
+                || !Double.isFinite(reading.getFlow())
+                || reading.getDensity() < 0
+                || reading.getDensity() > 1) {
+            throw InvalidDataException.builder()
+                    .message("Los valores deben ser finitos y la densidad debe estar entre 0 y 1 g/cm3")
+                    .build();
+        }
+
+        String discardReason = null;
+        if (reading.getFlow() <= 0) {
+            discardReason = "caudal debe ser mayor que 0";
+        } else if (reading.getMass() <= 0) {
+            discardReason = "masa debe ser mayor que 0";
+        } else if (order.getLastMass() != null && reading.getMass() < order.getLastMass()) {
+            discardReason = "masa acumulada menor que la lectura anterior";
+        }
+        if (discardReason != null) {
+            return new ReadingResponse(false, false, "Lectura descartada: " + discardReason, order);
+        }
+
+        Instant now = Instant.now();
+        order.setLastMass(reading.getMass());
+        order.setLastDensity(reading.getDensity());
+        order.setLastTemperature(reading.getTemperature());
+        order.setLastFlow(reading.getFlow());
+        order.setLastReceivedAt(now);
+        if (order.getStartedAt() == null) order.setStartedAt(now);
+        order.setFinishedAt(now);
+
+        boolean store = order.getLastStoredAt() == null
+                || Duration.between(order.getLastStoredAt(), now).getSeconds()
+                        >= readingStorageIntervalSeconds;
+        if (store) {
+            LoadDetail detail = new LoadDetail();
+            detail.setOrderId(order.getId());
+            detail.setMass(reading.getMass());
+            detail.setDensity(reading.getDensity());
+            detail.setTemperature(reading.getTemperature());
+            detail.setFlow(reading.getFlow());
+            detail.setReceivedAt(now);
+            detailRepository.save(detail);
+            order.setLastStoredAt(now);
+        }
+        log.debug("Lectura válida para orden {} (masa {} kg, densidad {} g/cm3, almacenada {})",
+                orderNumber, reading.getMass(), reading.getDensity(), store);
+        return new ReadingResponse(true, store, "Lectura registrada", order);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<LoadDetail> readings(long orderNumber) throws NotFoundException {
+        Order order = loadByOrderNumber(orderNumber);
+        return detailRepository.findByOrderIdOrderByReceivedAtAsc(order.getId());
     }
 
     // Busca la orden bloqueándola: solo sirve dentro de un método @Transactional.
