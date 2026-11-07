@@ -6,6 +6,9 @@ import ar.edu.iua.integrador.business.exception.InvalidPasswordException;
 import ar.edu.iua.integrador.business.exception.InvalidDataException;
 import ar.edu.iua.integrador.business.exception.InvalidStateException;
 import ar.edu.iua.integrador.business.exception.NotFoundException;
+import ar.edu.iua.integrador.dto.CloseRequest;
+import ar.edu.iua.integrador.dto.FinalWeightRequest;
+import ar.edu.iua.integrador.dto.ReconciliationResponse;
 import ar.edu.iua.integrador.dto.ActivationRequest;
 import ar.edu.iua.integrador.dto.ReadingRequest;
 import ar.edu.iua.integrador.dto.ReadingResponse;
@@ -165,6 +168,42 @@ public class OrderRestController {
         return orderBusiness.readings(orderNumber);
     }
 
+
+    @Operation(summary = "Cerrar la carga y pasar de estado 2 a 3",
+            description = "Bloquea nuevas lecturas e invalida la clave de activación.")
+    @ApiResponse(responseCode = "200", description = "Carga cerrada")
+    @ApiResponse(responseCode = "400", description = "Observación inválida")
+    @ApiResponse(responseCode = "404", description = "No existe la orden")
+    @ApiResponse(responseCode = "409", description = "La orden no está en estado 2")
+    @PostMapping("/{orderNumber}/close")
+    public Order close(@PathVariable long orderNumber, @Valid @RequestBody CloseRequest request)
+            throws NotFoundException, InvalidStateException {
+        return orderBusiness.close(orderNumber, request.getObservation());
+    }
+
+    @Operation(summary = "Registrar pesaje final y pasar de estado 3 a 4",
+            description = "El peso bruto final no puede ser menor que la tara. Devuelve la conciliación.")
+    @ApiResponse(responseCode = "200", description = "Pesaje registrado y conciliación calculada")
+    @ApiResponse(responseCode = "400", description = "Peso u observación inválidos")
+    @ApiResponse(responseCode = "404", description = "No existe la orden")
+    @ApiResponse(responseCode = "409", description = "La orden no está en estado 3")
+    @PostMapping("/{orderNumber}/final-weight")
+    public ReconciliationResponse finalWeight(@PathVariable long orderNumber,
+            @Valid @RequestBody FinalWeightRequest request)
+            throws NotFoundException, InvalidStateException, InvalidDataException {
+        return orderBusiness.finalWeight(orderNumber, request.getWeight(), request.getObservation());
+    }
+
+    @Operation(summary = "Consultar la conciliación de una orden en estado 4",
+            description = "Masa cargada: última masa aceptada. Promedios: historial muestreado.")
+    @ApiResponse(responseCode = "200", description = "Conciliación recalculada")
+    @ApiResponse(responseCode = "404", description = "No existe la orden")
+    @ApiResponse(responseCode = "409", description = "La orden no está en estado 4")
+    @GetMapping("/{orderNumber}/reconciliation")
+    public ReconciliationResponse reconciliation(@PathVariable long orderNumber)
+            throws NotFoundException, InvalidStateException {
+        return orderBusiness.reconciliation(orderNumber);
+    }
 
     /** Activa el surtidor con la contraseña de la orden y devuelve el preset. */
     @Operation(

@@ -4,6 +4,7 @@ import ar.edu.iua.integrador.business.exception.FoundException;
 import ar.edu.iua.integrador.business.exception.InvalidPasswordException;
 import ar.edu.iua.integrador.business.exception.InvalidStateException;
 import ar.edu.iua.integrador.business.exception.NotFoundException;
+import ar.edu.iua.integrador.dto.ReconciliationResponse;
 import ar.edu.iua.integrador.dto.ActivationResponse;
 import ar.edu.iua.integrador.dto.SapOrderRequest;
 import ar.edu.iua.integrador.dto.ReadingRequest;
@@ -15,8 +16,7 @@ import ar.edu.iua.integrador.dto.TareResponse;
 import ar.edu.iua.integrador.model.Order;
 
 /**
- * Operaciones sobre las órdenes de carga. Por ahora: la recepción desde SAP, la consulta, la tara
- * y la activación del surtidor.
+ * Operaciones del circuito de órdenes, desde la recepción hasta la conciliación.
  */
 public interface IOrderBusiness {
 
@@ -48,6 +48,18 @@ public interface IOrderBusiness {
     /** Procesa una lectura de una orden activada en estado 2. */
     ReadingResponse registerReading(long orderNumber, ReadingRequest reading)
             throws NotFoundException, InvalidStateException, InvalidDataException;
+
+    /** Cierra la carga en estado 2, pasa a estado 3 y bloquea nuevas lecturas. */
+    Order close(long orderNumber, String observation)
+            throws NotFoundException, InvalidStateException;
+
+    /** Registra el peso bruto final en estado 3 y devuelve la conciliación en estado 4. */
+    ReconciliationResponse finalWeight(long orderNumber, double weight, String observation)
+            throws NotFoundException, InvalidStateException, InvalidDataException;
+
+    /** Recalcula la conciliación; solo está disponible en estado 4. */
+    ReconciliationResponse reconciliation(long orderNumber)
+            throws NotFoundException, InvalidStateException;
 
     /** Devuelve el historial muestreado de lecturas de la orden. */
     List<LoadDetail> readings(long orderNumber) throws NotFoundException;
