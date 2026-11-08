@@ -2,6 +2,7 @@ package ar.edu.iua.integrador.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -41,6 +42,8 @@ public class TruckRequest {
     @NotEmpty(message = "debe tener al menos una cisterna")
     private List<
                     @NotNull(message = "no puede ser null")
-                    @Positive(message = "debe ser mayor a 0") Double>
+                    @Positive(message = "debe ser mayor a 0")
+                    // Un número desbordado (1e400) llega como infinito y cumple @Positive.
+                    @Max(value = Long.MAX_VALUE, message = "debe ser un número finito") Double>
             tanks;
 }

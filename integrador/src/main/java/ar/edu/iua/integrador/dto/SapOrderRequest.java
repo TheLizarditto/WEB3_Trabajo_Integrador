@@ -1,6 +1,7 @@
 package ar.edu.iua.integrador.dto;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
@@ -30,6 +31,8 @@ public class SapOrderRequest {
     // Kilos a cargar.
     @NotNull(message = "es obligatorio")
     @Positive(message = "debe ser mayor a 0")
+    // Un número desbordado (1e400) llega como infinito y cumple @Positive: este límite lo rechaza.
+    @Max(value = Long.MAX_VALUE, message = "debe ser un número finito")
     private Double preset;
 
     // @Valid hace que también se validen los campos de adentro de cada objeto.

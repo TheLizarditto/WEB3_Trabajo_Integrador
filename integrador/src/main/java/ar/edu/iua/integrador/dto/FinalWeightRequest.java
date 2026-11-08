@@ -13,11 +13,11 @@ import lombok.Setter;
 @Setter
 public class FinalWeightRequest {
     @Schema(description = "Peso bruto final del camión, en kg", example = "23000")
-    @NotNull
-    @Positive
-    @Max(1000000)
+    @NotNull(message = "es obligatorio")
+    @Positive(message = "debe ser mayor a 0")
+    @Max(value = 1000000, message = "no puede superar los 1000000 kg")
     private Double weight;
 
-    @Size(max = 255)
+    @Size(max = 255, message = "no puede superar los 255 caracteres")
     private String observation;
 }
