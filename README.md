@@ -55,6 +55,27 @@ Para ejecutar solamente las pruebas:
 mvn test
 ```
 
+### Circuito completo
+
+`CircuitTest` recorre el circuito de una orden a través de la API (estados 1 a 4),
+con la matriz de errores y transiciones, la auditoría, la concurrencia y la
+persistencia tras un reinicio. Se ejecuta con `mvn verify`, sobre H2.
+
+La colección de `postman/` prueba todos los endpoints contra la aplicación en
+ejecución. En Postman, importar los dos archivos, seleccionar el entorno y usar
+el Collection Runner; las carpetas de circuito se ejecutan en orden. También se
+puede ejecutar con Newman desde la raíz del repositorio:
+
+```shell
+npx newman run postman/Integrador.postman_collection.json \
+  -e postman/Integrador.postman_environment.json
+```
+
+Cada ejecución crea órdenes nuevas y reutiliza maestros con el prefijo `POSTMAN`.
+El entorno apunta a `http://localhost:8080`; se puede cambiar `baseUrl` para
+probar otra instalación. La ejecución de la colección contra MySQL está pendiente
+de verificación.
+
 ## Configuración de la base de datos
 
 Crear una base MySQL vacía y un usuario con permisos para crear y alterar tablas,
@@ -274,7 +295,8 @@ integrador/
     │       ├── application-dev.properties
     │       ├── application-prod.properties
     │       └── db/migration/       Migraciones SQL de Flyway
-    └── test/java/                  Pruebas de persistencia y migraciones
+    └── test/java/                  Pruebas automatizadas, incluido el circuito completo
+postman/                            Colección y entorno de Postman
 ```
 
 El punto de entrada está en el paquete raíz para que Spring detecte los

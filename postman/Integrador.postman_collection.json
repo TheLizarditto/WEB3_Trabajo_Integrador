@@ -1,0 +1,2703 @@
+{
+  "info": {
+    "name": "Integrador · órdenes de carga de gas",
+    "description": "Prueba todos los endpoints del trabajo integrador. Las carpetas 1 y 2 simulan el circuito completo de una orden, en nombre de SAP, el TMS y el surtidor: se ejecutan en orden, con el Collection Runner o con Newman. La carpeta 3 es independiente. Cada ejecución crea órdenes nuevas con el prefijo POSTMAN y no modifica las existentes.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. Circuito completo (ejecutar en orden)",
+      "item": [
+        {
+          "name": "00 · Salud de la aplicación",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));",
+                  "pm.test('La aplicación está activa', () => { pm.expect(pm.response.json().status).to.eql('UP'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "health"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "01 · SAP: recibir orden (estado 1)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Cada ejecución usa un número nuevo, así la colección se puede repetir sobre la misma base.",
+                  "const number = Date.now();",
+                  "pm.collectionVariables.set('orderNumber', String(number));",
+                  "pm.collectionVariables.set('orderCode', 'POSTMAN-' + number);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 201', () => pm.response.to.have.status(201));",
+                  "const order = pm.response.json();",
+                  "pm.test('La orden queda en estado 1, sin pesajes ni lecturas', () => { pm.expect(order.state).to.eql(1); pm.expect(order.tare).to.eql(null); pm.expect(order.finalWeight).to.eql(null); pm.expect(order.lastMass).to.eql(null); });",
+                  "pm.test('Conserva el número y el código de SAP', () => { pm.expect(String(order.orderNumber)).to.eql(pm.collectionVariables.get('orderNumber')); pm.expect(order.externalCode).to.eql(pm.collectionVariables.get('orderCode')); });",
+                  "pm.test('Location apunta a la orden', () => { pm.expect(pm.response.headers.get('Location')).to.eql('/api/v1/orders/' + pm.collectionVariables.get('orderNumber')); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderNumber\": {{orderNumber}},\n  \"externalCode\": \"{{orderCode}}\",\n  \"scheduledAt\": \"2026-11-10T10:00:00Z\",\n  \"preset\": 15000,\n  \"truck\": {\n    \"externalCode\": \"POSTMAN-T1\",\n    \"plate\": \"PM100AN\",\n    \"description\": \"Camión de la colección Postman\",\n    \"tanks\": [\n      10000,\n      5000\n    ]\n  },\n  \"driver\": {\n    \"externalCode\": \"POSTMAN-D1\",\n    \"name\": \"Ana\",\n    \"lastName\": \"Pérez\",\n    \"document\": \"39000001\"\n  },\n  \"customer\": {\n    \"externalCode\": \"POSTMAN-C1\",\n    \"name\": \"Cliente Postman\",\n    \"contact\": \"Compras\"\n  },\n  \"product\": {\n    \"externalCode\": \"POSTMAN-P1\",\n    \"name\": \"GLP Postman\",\n    \"description\": \"Gas licuado\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "02 · SAP: rechazar orden repetida",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 409', () => pm.response.to.have.status(409));",
+                  "pm.test('Error con el formato uniforme', () => { const e = pm.response.json(); pm.expect(e.code).to.eql(409); pm.expect(e.error).to.be.a('string'); pm.expect(e.message).to.be.a('string').and.not.empty; pm.expect(e.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderNumber\": {{orderNumber}},\n  \"externalCode\": \"{{orderCode}}\",\n  \"scheduledAt\": \"2026-11-10T10:00:00Z\",\n  \"preset\": 15000,\n  \"truck\": {\n    \"externalCode\": \"POSTMAN-T1\",\n    \"plate\": \"PM100AN\",\n    \"description\": \"Camión de la colección Postman\",\n    \"tanks\": [\n      10000,\n      5000\n    ]\n  },\n  \"driver\": {\n    \"externalCode\": \"POSTMAN-D1\",\n    \"name\": \"Ana\",\n    \"lastName\": \"Pérez\",\n    \"document\": \"39000001\"\n  },\n  \"customer\": {\n    \"externalCode\": \"POSTMAN-C1\",\n    \"name\": \"Cliente Postman\",\n    \"contact\": \"Compras\"\n  },\n  \"product\": {\n    \"externalCode\": \"POSTMAN-P1\",\n    \"name\": \"GLP Postman\",\n    \"description\": \"Gas licuado\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "03 · SAP: rechazar datos inválidos",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 400', () => pm.response.to.have.status(400));",
+                  "pm.test('Error con el formato uniforme', () => { const e = pm.response.json(); pm.expect(e.code).to.eql(400); pm.expect(e.error).to.be.a('string'); pm.expect(e.message).to.be.a('string').and.not.empty; pm.expect(e.timestamp).to.be.a('string'); });",
+                  "pm.test('Informa todos los campos con error', () => { const m = pm.response.json().message; pm.expect(m).to.include('preset'); pm.expect(m).to.include('truck.plate'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderNumber\": 1,\n  \"scheduledAt\": \"2026-11-10T10:00:00Z\",\n  \"preset\": -1,\n  \"truck\": {\n    \"plate\": \"aa 123 bb\",\n    \"tanks\": [\n      10000\n    ]\n  },\n  \"driver\": {\n    \"name\": \"Ana\",\n    \"lastName\": \"Pérez\"\n  },\n  \"customer\": {\n    \"name\": \"Cliente Postman\"\n  },\n  \"product\": {\n    \"name\": \"GLP Postman\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "04 · Consultar la orden recibida",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));",
+                  "const order = pm.response.json();",
+                  "pm.test('Devuelve los maestros sincronizados', () => { pm.expect(order.truck.plate).to.eql('PM100AN'); pm.expect(order.driver.lastName).to.eql('Pérez'); pm.expect(order.customer.name).to.eql('Cliente Postman'); pm.expect(order.product.name).to.eql('GLP Postman'); });",
+                  "pm.test('Sigue en estado 1', () => { pm.expect(order.state).to.eql(1); pm.expect(order.preset).to.eql(15000); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "05 · Estado 1: rechazar activación",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 409', () => pm.response.to.have.status(409));",
+                  "pm.test('Error con el formato uniforme', () => { const e = pm.response.json(); pm.expect(e.code).to.eql(409); pm.expect(e.error).to.be.a('string'); pm.expect(e.message).to.be.a('string').and.not.empty; pm.expect(e.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}/activation",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}",
+                "activation"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"12345\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "06 · Estado 1: rechazar lectura",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 409', () => pm.response.to.have.status(409));",
+                  "pm.test('Error con el formato uniforme', () => { const e = pm.response.json(); pm.expect(e.code).to.eql(409); pm.expect(e.error).to.be.a('string'); pm.expect(e.message).to.be.a('string').and.not.empty; pm.expect(e.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}/readings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}",
+                "readings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mass\": 5000,\n  \"density\": 0.55,\n  \"temperature\": 24,\n  \"flow\": 1800\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "07 · Estado 1: rechazar cierre",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 409', () => pm.response.to.have.status(409));",
+                  "pm.test('Error con el formato uniforme', () => { const e = pm.response.json(); pm.expect(e.code).to.eql(409); pm.expect(e.error).to.be.a('string'); pm.expect(e.message).to.be.a('string').and.not.empty; pm.expect(e.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}/close",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}",
+                "close"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "08 · Estado 1: rechazar pesaje final",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 409', () => pm.response.to.have.status(409));",
+                  "pm.test('Error con el formato uniforme', () => { const e = pm.response.json(); pm.expect(e.code).to.eql(409); pm.expect(e.error).to.be.a('string'); pm.expect(e.message).to.be.a('string').and.not.empty; pm.expect(e.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}/final-weight",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}",
+                "final-weight"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"weight\": 20000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "09 · Estado 1: rechazar conciliación",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 409', () => pm.response.to.have.status(409));",
+                  "pm.test('Error con el formato uniforme', () => { const e = pm.response.json(); pm.expect(e.code).to.eql(409); pm.expect(e.error).to.be.a('string'); pm.expect(e.message).to.be.a('string').and.not.empty; pm.expect(e.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}/reconciliation",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}",
+                "reconciliation"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "10 · TMS: rechazar tara inválida",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 400', () => pm.response.to.have.status(400));",
+                  "pm.test('Error con el formato uniforme', () => { const e = pm.response.json(); pm.expect(e.code).to.eql(400); pm.expect(e.error).to.be.a('string'); pm.expect(e.message).to.be.a('string').and.not.empty; pm.expect(e.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}/tare",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}",
+                "tare"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tare\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "11 · TMS: registrar tara (estado 2)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));",
+                  "const tare = pm.response.json();",
+                  "pm.test('Devuelve la tara y una contraseña de 5 dígitos', () => { pm.expect(tare.tare).to.eql(8500); pm.expect(tare.password).to.match(/^[0-9]{5}$/); });",
+                  "// La contraseña se devuelve una sola vez: se guarda para los pasos siguientes.",
+                  "pm.collectionVariables.set('activationPassword', tare.password);",
+                  "pm.collectionVariables.set('wrongPassword', tare.password === '00000' ? '00001' : '00000');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}/tare",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}",
+                "tare"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tare\": 8500\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "12 · TMS: rechazar tara repetida",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 409', () => pm.response.to.have.status(409));",
+                  "pm.test('Error con el formato uniforme', () => { const e = pm.response.json(); pm.expect(e.code).to.eql(409); pm.expect(e.error).to.be.a('string'); pm.expect(e.message).to.be.a('string').and.not.empty; pm.expect(e.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}/tare",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}",
+                "tare"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tare\": 8500\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "13 · Consultar la orden sin exponer la contraseña",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));",
+                  "const order = pm.response.json();",
+                  "pm.test('Está en estado 2 con la fecha de pesaje', () => { pm.expect(order.state).to.eql(2); pm.expect(order.tare).to.eql(8500); pm.expect(order.initialWeighedAt).to.be.a('string'); });",
+                  "pm.test('No expone la contraseña ni su hash', () => { pm.expect(order).to.not.have.property('password'); pm.expect(order).to.not.have.property('activationHash'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "14 · Sin activar: rechazar lectura",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 409', () => pm.response.to.have.status(409));",
+                  "pm.test('Error con el formato uniforme', () => { const e = pm.response.json(); pm.expect(e.code).to.eql(409); pm.expect(e.error).to.be.a('string'); pm.expect(e.message).to.be.a('string').and.not.empty; pm.expect(e.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}/readings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}",
+                "readings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mass\": 5000,\n  \"density\": 0.55,\n  \"temperature\": 24,\n  \"flow\": 1800\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "15 · Surtidor: rechazar contraseña mal formada",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 400', () => pm.response.to.have.status(400));",
+                  "pm.test('Error con el formato uniforme', () => { const e = pm.response.json(); pm.expect(e.code).to.eql(400); pm.expect(e.error).to.be.a('string'); pm.expect(e.message).to.be.a('string').and.not.empty; pm.expect(e.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}/activation",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}",
+                "activation"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "16 · Surtidor: rechazar contraseña incorrecta",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 403', () => pm.response.to.have.status(403));",
+                  "pm.test('Error con el formato uniforme', () => { const e = pm.response.json(); pm.expect(e.code).to.eql(403); pm.expect(e.error).to.be.a('string'); pm.expect(e.message).to.be.a('string').and.not.empty; pm.expect(e.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}/activation",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}",
+                "activation"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"{{wrongPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "17 · Surtidor: activar y recibir el preset",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Devuelve el preset', () => { pm.expect(pm.response.json().preset).to.eql(15000); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}/activation",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}",
+                "activation"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"{{activationPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "18 · Surtidor: repetir la activación antes de cargar",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Vuelve a devolver el preset', () => { pm.expect(pm.response.json().preset).to.eql(15000); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}/activation",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}",
+                "activation"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"{{activationPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "19 · Lectura: rechazar densidad fuera de rango",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 400', () => pm.response.to.have.status(400));",
+                  "pm.test('Error con el formato uniforme', () => { const e = pm.response.json(); pm.expect(e.code).to.eql(400); pm.expect(e.error).to.be.a('string'); pm.expect(e.message).to.be.a('string').and.not.empty; pm.expect(e.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}/readings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}",
+                "readings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mass\": 5000,\n  \"density\": 1.5,\n  \"temperature\": 24,\n  \"flow\": 1800\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "20 · Lectura válida: inicia la carga",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "pm.test('Se acepta y se almacena en el historial', () => { pm.expect(r.accepted).to.eql(true); pm.expect(r.stored).to.eql(true); });",
+                  "pm.test('Actualiza la cabecera e inicia la carga', () => { pm.expect(r.order.lastMass).to.eql(5000); pm.expect(r.order.startedAt).to.be.a('string'); pm.expect(r.order).to.not.have.property('activationHash'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}/readings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}",
+                "readings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mass\": 5000,\n  \"density\": 0.55,\n  \"temperature\": 24,\n  \"flow\": 1800\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "21 · Surtidor: rechazar activación con la carga iniciada",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 409', () => pm.response.to.have.status(409));",
+                  "pm.test('Error con el formato uniforme', () => { const e = pm.response.json(); pm.expect(e.code).to.eql(409); pm.expect(e.error).to.be.a('string'); pm.expect(e.message).to.be.a('string').and.not.empty; pm.expect(e.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}/activation",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}",
+                "activation"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"{{activationPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "22 · Lectura: descartar masa menor a la anterior",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "pm.test('Se descarta sin tocar la cabecera', () => { pm.expect(r.accepted).to.eql(false); pm.expect(r.stored).to.eql(false); pm.expect(r.reason).to.include('descartada'); pm.expect(r.order.lastMass).to.eql(5000); pm.expect(r.order.lastTemperature).to.eql(24); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}/readings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}",
+                "readings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mass\": 4000,\n  \"density\": 0.9,\n  \"temperature\": 99,\n  \"flow\": 1800\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "23 · Lectura: descartar caudal cero",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "pm.test('Se descarta sin tocar la cabecera', () => { pm.expect(r.accepted).to.eql(false); pm.expect(r.order.lastMass).to.eql(5000); pm.expect(r.order.lastFlow).to.eql(1800); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}/readings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}",
+                "readings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mass\": 6000,\n  \"density\": 0.9,\n  \"temperature\": 99,\n  \"flow\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "24 · Lectura: descartar masa cero",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "pm.test('Se descarta sin tocar la cabecera', () => { pm.expect(r.accepted).to.eql(false); pm.expect(r.order.lastMass).to.eql(5000); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}/readings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}",
+                "readings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mass\": 0,\n  \"density\": 0.9,\n  \"temperature\": 99,\n  \"flow\": 1800\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "25 · Lectura válida: actualiza la cabecera",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "// No se comprueba 'stored': depende del tiempo transcurrido y del intervalo de muestreo.",
+                  "pm.test('Se acepta y actualiza los últimos valores', () => { pm.expect(r.accepted).to.eql(true); pm.expect(r.order.lastMass).to.eql(12000); pm.expect(r.order.lastDensity).to.eql(0.56); pm.expect(r.order.lastTemperature).to.eql(26); pm.expect(r.order.lastFlow).to.eql(1700); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}/readings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}",
+                "readings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mass\": 12000,\n  \"density\": 0.56,\n  \"temperature\": 26,\n  \"flow\": 1700\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "26 · Consultar la orden durante la carga",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));",
+                  "const order = pm.response.json();",
+                  "pm.test('Muestra el avance de la carga', () => { pm.expect(order.state).to.eql(2); pm.expect(order.lastMass).to.eql(12000); pm.expect(order.lastReceivedAt).to.be.a('string'); pm.expect(order.finishedAt).to.be.a('string'); pm.expect(order.etaSeconds).to.be.closeTo(3000 / 1700 * 3600, 0.001); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "27 · Consultar el historial de lecturas",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));",
+                  "const history = pm.response.json();",
+                  "pm.test('Empieza con la primera lectura válida', () => { pm.expect(history).to.be.an('array').and.not.empty; pm.expect(history[0].mass).to.eql(5000); });",
+                  "pm.test('No contiene lecturas descartadas', () => { pm.expect(history.every(d => d.temperature !== 99)).to.eql(true); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}/readings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}",
+                "readings"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "28 · Sin cerrar: rechazar pesaje final",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 409', () => pm.response.to.have.status(409));",
+                  "pm.test('Error con el formato uniforme', () => { const e = pm.response.json(); pm.expect(e.code).to.eql(409); pm.expect(e.error).to.be.a('string'); pm.expect(e.message).to.be.a('string').and.not.empty; pm.expect(e.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}/final-weight",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}",
+                "final-weight"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"weight\": 20510\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "29 · Sin finalizar: rechazar conciliación",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 409', () => pm.response.to.have.status(409));",
+                  "pm.test('Error con el formato uniforme', () => { const e = pm.response.json(); pm.expect(e.code).to.eql(409); pm.expect(e.error).to.be.a('string'); pm.expect(e.message).to.be.a('string').and.not.empty; pm.expect(e.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}/reconciliation",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}",
+                "reconciliation"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "30 · Cerrar la carga (estado 3)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));",
+                  "const order = pm.response.json();",
+                  "pm.test('Pasa a estado 3 y conserva los últimos valores', () => { pm.expect(order.state).to.eql(3); pm.expect(order.lastMass).to.eql(12000); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}/close",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}",
+                "close"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"observation\": \"Carga completa\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "31 · Cerrada: rechazar lectura",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 409', () => pm.response.to.have.status(409));",
+                  "pm.test('Error con el formato uniforme', () => { const e = pm.response.json(); pm.expect(e.code).to.eql(409); pm.expect(e.error).to.be.a('string'); pm.expect(e.message).to.be.a('string').and.not.empty; pm.expect(e.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}/readings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}",
+                "readings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mass\": 13000,\n  \"density\": 0.56,\n  \"temperature\": 26,\n  \"flow\": 1700\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "32 · Cerrada: rechazar activación",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 409', () => pm.response.to.have.status(409));",
+                  "pm.test('Error con el formato uniforme', () => { const e = pm.response.json(); pm.expect(e.code).to.eql(409); pm.expect(e.error).to.be.a('string'); pm.expect(e.message).to.be.a('string').and.not.empty; pm.expect(e.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}/activation",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}",
+                "activation"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"{{activationPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "33 · Cerrada: rechazar segundo cierre",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 409', () => pm.response.to.have.status(409));",
+                  "pm.test('Error con el formato uniforme', () => { const e = pm.response.json(); pm.expect(e.code).to.eql(409); pm.expect(e.error).to.be.a('string'); pm.expect(e.message).to.be.a('string').and.not.empty; pm.expect(e.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}/close",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}",
+                "close"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "34 · Cerrada: rechazar conciliación",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 409', () => pm.response.to.have.status(409));",
+                  "pm.test('Error con el formato uniforme', () => { const e = pm.response.json(); pm.expect(e.code).to.eql(409); pm.expect(e.error).to.be.a('string'); pm.expect(e.message).to.be.a('string').and.not.empty; pm.expect(e.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}/reconciliation",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}",
+                "reconciliation"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "35 · TMS: rechazar pesaje final menor que la tara",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 400', () => pm.response.to.have.status(400));",
+                  "pm.test('Error con el formato uniforme', () => { const e = pm.response.json(); pm.expect(e.code).to.eql(400); pm.expect(e.error).to.be.a('string'); pm.expect(e.message).to.be.a('string').and.not.empty; pm.expect(e.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}/final-weight",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}",
+                "final-weight"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"weight\": 8000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "36 · TMS: pesaje final y conciliación (estado 4)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));",
+                  "const c = pm.response.json();",
+                  "pm.test('Informa los pesajes', () => { pm.expect(c.tare).to.eql(8500); pm.expect(c.finalWeight).to.eql(20510); pm.expect(c.unit).to.eql('kg'); });",
+                  "pm.test('Producto cargado: última masa aceptada', () => { pm.expect(c.loadedProduct).to.eql(12000); });",
+                  "pm.test('Neto por balanza: final menos tara', () => { pm.expect(c.netWeight).to.eql(12010); });",
+                  "pm.test('Diferencia: neto menos producto cargado', () => { pm.expect(c.difference).to.eql(10); });",
+                  "pm.collectionVariables.set('reconciliation', JSON.stringify(c));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}/final-weight",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}",
+                "final-weight"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"weight\": 20510,\n  \"observation\": \"Balanza final\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "37 · Consultar la conciliación",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Coincide con la del pesaje final, sin repetirlo', () => { pm.expect(pm.response.json()).to.eql(JSON.parse(pm.collectionVariables.get('reconciliation'))); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}/reconciliation",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}",
+                "reconciliation"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "38 · Verificar los promedios contra el historial",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));",
+                  "const history = pm.response.json();",
+                  "const c = JSON.parse(pm.collectionVariables.get('reconciliation'));",
+                  "const average = field => history.reduce((total, d) => total + d[field], 0) / history.length;",
+                  "pm.test('Temperatura, densidad y caudal promedian lo almacenado', () => { pm.expect(c.averageTemperature).to.be.closeTo(average('temperature'), 0.001); pm.expect(c.averageDensity).to.be.closeTo(average('density'), 0.001); pm.expect(c.averageFlow).to.be.closeTo(average('flow'), 0.001); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}/readings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}",
+                "readings"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "39 · Consultar la orden finalizada",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));",
+                  "const order = pm.response.json();",
+                  "pm.test('Está en estado 4 con el pesaje final', () => { pm.expect(order.state).to.eql(4); pm.expect(order.finalWeight).to.eql(20510); pm.expect(order.finalWeighedAt).to.be.a('string'); });",
+                  "pm.test('Conserva el inicio y el fin de la carga', () => { pm.expect(order.startedAt).to.be.a('string'); pm.expect(order.finishedAt).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "40 · Finalizada: rechazar segundo pesaje final",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 409', () => pm.response.to.have.status(409));",
+                  "pm.test('Error con el formato uniforme', () => { const e = pm.response.json(); pm.expect(e.code).to.eql(409); pm.expect(e.error).to.be.a('string'); pm.expect(e.message).to.be.a('string').and.not.empty; pm.expect(e.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}/final-weight",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}",
+                "final-weight"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"weight\": 20510\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "41 · Finalizada: no retrocede con otra tara",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 409', () => pm.response.to.have.status(409));",
+                  "pm.test('Error con el formato uniforme', () => { const e = pm.response.json(); pm.expect(e.code).to.eql(409); pm.expect(e.error).to.be.a('string'); pm.expect(e.message).to.be.a('string').and.not.empty; pm.expect(e.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}/tare",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}",
+                "tare"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tare\": 8500\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "42 · Finalizada: rechazar lectura y limpiar variables",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 409', () => pm.response.to.have.status(409));",
+                  "pm.test('Error con el formato uniforme', () => { const e = pm.response.json(); pm.expect(e.code).to.eql(409); pm.expect(e.error).to.be.a('string'); pm.expect(e.message).to.be.a('string').and.not.empty; pm.expect(e.timestamp).to.be.a('string'); });",
+                  "// La contraseña no debe quedar en las variables si se exporta la colección.",
+                  "pm.collectionVariables.unset('activationPassword');",
+                  "pm.collectionVariables.unset('wrongPassword');",
+                  "pm.collectionVariables.unset('reconciliation');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumber}}/readings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumber}}",
+                "readings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mass\": 13000,\n  \"density\": 0.56,\n  \"temperature\": 26,\n  \"flow\": 1700\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "2. Circuito sin códigos externos (ejecutar en orden)",
+      "item": [
+        {
+          "name": "N1 · SAP: recibir orden sin códigos",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const number = Date.now();",
+                  "pm.collectionVariables.set('orderNumberNoCode', String(number));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 201', () => pm.response.to.have.status(201));",
+                  "pm.test('El código externo queda nulo', () => { pm.expect(pm.response.json().externalCode).to.eql(null); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderNumber\": {{orderNumberNoCode}},\n  \"scheduledAt\": \"2026-11-10T10:00:00Z\",\n  \"preset\": 1000,\n  \"truck\": {\n    \"plate\": \"PM200AN\",\n    \"tanks\": [\n      1000\n    ]\n  },\n  \"driver\": {\n    \"name\": \"Beatriz\",\n    \"lastName\": \"Gómez\",\n    \"document\": \"39000002\"\n  },\n  \"customer\": {\n    \"name\": \"Cliente Postman sin código\"\n  },\n  \"product\": {\n    \"name\": \"GLP Postman sin código\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "N2 · TMS: registrar tara",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('activationPasswordNoCode', pm.response.json().password);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumberNoCode}}/tare",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumberNoCode}}",
+                "tare"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tare\": 2000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "N3 · Surtidor: activar",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Devuelve el preset', () => { pm.expect(pm.response.json().preset).to.eql(1000); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumberNoCode}}/activation",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumberNoCode}}",
+                "activation"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"{{activationPasswordNoCode}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "N4 · Cerrar sin lecturas",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Pasa a estado 3', () => { pm.expect(pm.response.json().state).to.eql(3); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumberNoCode}}/close",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumberNoCode}}",
+                "close"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "N5 · TMS: pesaje final igual a la tara",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));",
+                  "const c = pm.response.json();",
+                  "pm.test('Sin carga: valores en cero y promedios nulos', () => { pm.expect(c.loadedProduct).to.eql(0); pm.expect(c.netWeight).to.eql(0); pm.expect(c.difference).to.eql(0); pm.expect(c.averageTemperature).to.eql(null); pm.expect(c.averageDensity).to.eql(null); pm.expect(c.averageFlow).to.eql(null); });",
+                  "pm.collectionVariables.unset('activationPasswordNoCode');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumberNoCode}}/final-weight",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumberNoCode}}",
+                "final-weight"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"weight\": 2000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "N6 · Consultar la conciliación",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Sigue sin código externo', () => { pm.expect(pm.response.json().externalCode).to.eql(null); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderNumberNoCode}}/reconciliation",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderNumberNoCode}}",
+                "reconciliation"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "3. Errores generales",
+      "item": [
+        {
+          "name": "E1 · Consultar orden inexistente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 404', () => pm.response.to.have.status(404));",
+                  "pm.test('Error con el formato uniforme', () => { const e = pm.response.json(); pm.expect(e.code).to.eql(404); pm.expect(e.error).to.be.a('string'); pm.expect(e.message).to.be.a('string').and.not.empty; pm.expect(e.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{unknownOrder}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{unknownOrder}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "E2 · Tara de orden inexistente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 404', () => pm.response.to.have.status(404));",
+                  "pm.test('Error con el formato uniforme', () => { const e = pm.response.json(); pm.expect(e.code).to.eql(404); pm.expect(e.error).to.be.a('string'); pm.expect(e.message).to.be.a('string').and.not.empty; pm.expect(e.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{unknownOrder}}/tare",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{unknownOrder}}",
+                "tare"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tare\": 8500\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "E3 · Activar orden inexistente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 404', () => pm.response.to.have.status(404));",
+                  "pm.test('Error con el formato uniforme', () => { const e = pm.response.json(); pm.expect(e.code).to.eql(404); pm.expect(e.error).to.be.a('string'); pm.expect(e.message).to.be.a('string').and.not.empty; pm.expect(e.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{unknownOrder}}/activation",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{unknownOrder}}",
+                "activation"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"12345\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "E4 · Lectura de orden inexistente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 404', () => pm.response.to.have.status(404));",
+                  "pm.test('Error con el formato uniforme', () => { const e = pm.response.json(); pm.expect(e.code).to.eql(404); pm.expect(e.error).to.be.a('string'); pm.expect(e.message).to.be.a('string').and.not.empty; pm.expect(e.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{unknownOrder}}/readings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{unknownOrder}}",
+                "readings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mass\": 5000,\n  \"density\": 0.55,\n  \"temperature\": 24,\n  \"flow\": 1800\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "E5 · Historial de orden inexistente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 404', () => pm.response.to.have.status(404));",
+                  "pm.test('Error con el formato uniforme', () => { const e = pm.response.json(); pm.expect(e.code).to.eql(404); pm.expect(e.error).to.be.a('string'); pm.expect(e.message).to.be.a('string').and.not.empty; pm.expect(e.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{unknownOrder}}/readings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{unknownOrder}}",
+                "readings"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "E6 · Cerrar orden inexistente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 404', () => pm.response.to.have.status(404));",
+                  "pm.test('Error con el formato uniforme', () => { const e = pm.response.json(); pm.expect(e.code).to.eql(404); pm.expect(e.error).to.be.a('string'); pm.expect(e.message).to.be.a('string').and.not.empty; pm.expect(e.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{unknownOrder}}/close",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{unknownOrder}}",
+                "close"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "E7 · Pesaje final de orden inexistente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 404', () => pm.response.to.have.status(404));",
+                  "pm.test('Error con el formato uniforme', () => { const e = pm.response.json(); pm.expect(e.code).to.eql(404); pm.expect(e.error).to.be.a('string'); pm.expect(e.message).to.be.a('string').and.not.empty; pm.expect(e.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{unknownOrder}}/final-weight",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{unknownOrder}}",
+                "final-weight"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"weight\": 20000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "E8 · Conciliación de orden inexistente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 404', () => pm.response.to.have.status(404));",
+                  "pm.test('Error con el formato uniforme', () => { const e = pm.response.json(); pm.expect(e.code).to.eql(404); pm.expect(e.error).to.be.a('string'); pm.expect(e.message).to.be.a('string').and.not.empty; pm.expect(e.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{unknownOrder}}/reconciliation",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{unknownOrder}}",
+                "reconciliation"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "E9 · Número de orden que no es numérico",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 400', () => pm.response.to.have.status(400));",
+                  "pm.test('Error con el formato uniforme', () => { const e = pm.response.json(); pm.expect(e.code).to.eql(400); pm.expect(e.error).to.be.a('string'); pm.expect(e.message).to.be.a('string').and.not.empty; pm.expect(e.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/abc",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "abc"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "E10 · Cuerpo que no es JSON",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 400', () => pm.response.to.have.status(400));",
+                  "pm.test('Error con el formato uniforme', () => { const e = pm.response.json(); pm.expect(e.code).to.eql(400); pm.expect(e.error).to.be.a('string'); pm.expect(e.message).to.be.a('string').and.not.empty; pm.expect(e.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "esto no es JSON",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "E11 · Tara por encima del máximo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 400', () => pm.response.to.have.status(400));",
+                  "pm.test('Error con el formato uniforme', () => { const e = pm.response.json(); pm.expect(e.code).to.eql(400); pm.expect(e.error).to.be.a('string'); pm.expect(e.message).to.be.a('string').and.not.empty; pm.expect(e.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{unknownOrder}}/tare",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{unknownOrder}}",
+                "tare"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tare\": 1000001\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "E12 · Documentación OpenAPI disponible",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Publica las operaciones del circuito', () => { const paths = pm.response.json().paths; ['/api/v1/orders', '/api/v1/orders/{orderNumber}', '/api/v1/orders/{orderNumber}/tare', '/api/v1/orders/{orderNumber}/activation', '/api/v1/orders/{orderNumber}/readings', '/api/v1/orders/{orderNumber}/close', '/api/v1/orders/{orderNumber}/final-weight', '/api/v1/orders/{orderNumber}/reconciliation'].forEach(path => pm.expect(paths).to.have.property(path)); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v3/api-docs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v3",
+                "api-docs"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "unknownOrder",
+      "value": "999999999"
+    }
+  ]
+}

@@ -8,6 +8,6 @@ import lombok.Setter;
 @Getter
 @Setter
 public class CloseRequest {
-    @Size(max = 255)
+    @Size(max = 255, message = "no puede superar los 255 caracteres")
     private String observation;
 }
