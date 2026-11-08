@@ -5,6 +5,7 @@ import ar.edu.iua.integrador.business.exception.InvalidPasswordException;
 import ar.edu.iua.integrador.business.exception.InvalidDataException;
 import ar.edu.iua.integrador.business.exception.InvalidStateException;
 import ar.edu.iua.integrador.business.exception.NotFoundException;
+import ar.edu.iua.integrador.dto.ReconciliationResponse;
 import ar.edu.iua.integrador.dto.ActivationResponse;
 import ar.edu.iua.integrador.dto.ReadingRequest;
 import ar.edu.iua.integrador.dto.ReadingResponse;
@@ -281,6 +282,79 @@ public class OrderBusiness implements IOrderBusiness {
     public List<LoadDetail> readings(long orderNumber) throws NotFoundException {
         Order order = loadByOrderNumber(orderNumber);
         return detailRepository.findByOrderIdOrderByReceivedAtAsc(order.getId());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Order close(long orderNumber, String observation)
+            throws NotFoundException, InvalidStateException {
+        // Usa el mismo bloqueo que registerReading: ninguna lectura puede entrar después del cierre.
+        Order order = lockByOrderNumber(orderNumber);
+        requireState(order, STATE_WITH_INITIAL_WEIGHING);
+        order.setState(3);
+        order.setActivationHash(null);
+        auditClosure(order, 2, 3, "LOADER", observation, Instant.now());
+        return order;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ReconciliationResponse finalWeight(long orderNumber, double weight, String observation)
+            throws NotFoundException, InvalidStateException, InvalidDataException {
+        Order order = lockByOrderNumber(orderNumber);
+        requireState(order, 3);
+        if (!Double.isFinite(weight) || weight <= 0 || weight > 1_000_000
+                || weight < order.getTare()) {
+            throw InvalidDataException.builder()
+                    .message("El pesaje final debe ser finito, mayor que 0, no superar 1000000 kg"
+                            + " y no puede ser menor que la tara")
+                    .build();
+        }
+        order.setFinalWeight(weight);
+        order.setFinalWeighedAt(Instant.now());
+        order.setState(4);
+        auditClosure(order, 3, 4, ACTOR_TMS, observation, order.getFinalWeighedAt());
+        return reconciliation(order);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ReconciliationResponse reconciliation(long orderNumber)
+            throws NotFoundException, InvalidStateException {
+        return reconciliation(loadByOrderNumber(orderNumber));
+    }
+
+    private ReconciliationResponse reconciliation(Order order) throws InvalidStateException {
+        requireState(order, 4);
+        // La masa acumulada es la última aceptada, aunque no se haya guardado como detalle.
+        double loadedProduct = order.getLastMass() == null ? 0 : order.getLastMass();
+        double netWeight = order.getFinalWeight() - order.getTare();
+        Object[] averages = detailRepository.averages(order.getId()).getFirst();
+        return new ReconciliationResponse(order.getId(), order.getExternalCode(),
+                order.getOrderNumber(), order.getTare(), order.getFinalWeight(), loadedProduct,
+                netWeight, netWeight - loadedProduct, (Double) averages[0],
+                (Double) averages[1], (Double) averages[2], "kg");
+    }
+
+    private void requireState(Order order, int expected) throws InvalidStateException {
+        if (order.getState() != expected) {
+            throw InvalidStateException.builder()
+                    .message("La orden " + order.getOrderNumber() + " está en estado "
+                            + order.getState() + ": la operación requiere estado " + expected)
+                    .build();
+        }
+    }
+
+    private void auditClosure(Order order, int from, int to, String actor,
+            String observation, Instant occurredAt) {
+        StateTransition transition = new StateTransition();
+        transition.setOrderId(order.getId());
+        transition.setFromState(from);
+        transition.setToState(to);
+        transition.setActor(actor);
+        transition.setObservation(observation);
+        transition.setOccurredAt(occurredAt);
+        transitionRepository.save(transition);
     }
 
     // Busca la orden bloqueándola: solo sirve dentro de un método @Transactional.
