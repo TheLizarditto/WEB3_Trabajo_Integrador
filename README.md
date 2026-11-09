@@ -26,6 +26,14 @@ La cuarta incorpora el registro de la tara (pesaje inicial), con la generación
 de la contraseña de activación, y la activación del surtidor, que devuelve el
 preset.
 
+La quinta incorpora el procesamiento de lecturas de carga, con descarte de
+lecturas inválidas y un historial muestreado. La sexta incorpora el cierre de la
+carga, el pesaje final y la conciliación. La séptima incorpora la prueba del
+circuito completo (`CircuitTest`) y la colección de Postman.
+
+Con estas entregas, una orden puede recorrer los cuatro estados a través de la
+API.
+
 ## Requisitos
 
 - JDK 21.
@@ -73,8 +81,12 @@ npx newman run postman/Integrador.postman_collection.json \
 
 Cada ejecución crea órdenes nuevas y reutiliza maestros con el prefijo `POSTMAN`.
 El entorno apunta a `http://localhost:8080`; se puede cambiar `baseUrl` para
-probar otra instalación. La ejecución de la colección contra MySQL está pendiente
-de verificación.
+probar otra instalación.
+
+La colección se ejecutó con Newman contra MySQL 8.4, sobre una base vacía: 61
+solicitudes y 132 aserciones sin fallos, en dos corridas seguidas. Las pruebas de
+concurrencia de `CircuitTest` y `ClosureTest` corren solo sobre H2; no equivalen
+a una verificación de concurrencia contra un servidor MySQL.
 
 ## Configuración de la base de datos
 
@@ -130,6 +142,11 @@ para el siguiente arranque.
 | `GET` | `/api/v1/orders/{orderNumber}` | Devuelve la orden con ese número de orden. | `200`, `404` si no existe |
 | `POST` | `/api/v1/orders/{orderNumber}/tare` | Registra la tara que envía el TMS, genera la contraseña de activación y pasa la orden a estado 2. | `200` con la contraseña, `400` tara inválida, `404` si no existe, `409` si la orden no está en estado 1 |
 | `POST` | `/api/v1/orders/{orderNumber}/activation` | Valida la contraseña del surtidor y devuelve el preset. | `200` con el preset, `400` contraseña sin 5 dígitos, `403` contraseña incorrecta, `404` si no existe, `409` si la orden no está en estado 2 o la carga ya comenzó |
+| `POST` | `/api/v1/orders/{orderNumber}/readings` | Procesa una lectura del surtidor. | `200` con `accepted` en `true` o `false` si se descarta, `400` datos faltantes o inválidos, `404` si no existe, `409` si la orden no está activada o no está en estado 2 |
+| `GET` | `/api/v1/orders/{orderNumber}/readings` | Devuelve el historial muestreado de lecturas. | `200`, `404` si no existe |
+| `POST` | `/api/v1/orders/{orderNumber}/close` | Cierra la carga y pasa la orden a estado 3. | `200` con la orden, `400` observación inválida, `404` si no existe, `409` si la orden no está en estado 2 |
+| `POST` | `/api/v1/orders/{orderNumber}/final-weight` | Registra el peso final, pasa la orden a estado 4 y devuelve la conciliación. | `200` con la conciliación, `400` peso u observación inválidos, `404` si no existe, `409` si la orden no está en estado 3 |
+| `GET` | `/api/v1/orders/{orderNumber}/reconciliation` | Devuelve la conciliación de una orden finalizada. | `200`, `404` si no existe, `409` si la orden no está en estado 4 |
 
 Las URLs de órdenes usan el **número de orden** que envía SAP, no el `id`
 interno de la base. El header `Location` del `POST` sigue el mismo formato, por
@@ -233,6 +250,90 @@ activación se puede repetir con la misma contraseña mientras no haya empezado 
 carga, por si el surtidor no recibió la respuesta; se conserva la fecha de la
 primera activación.
 
+## Lecturas de carga
+
+El surtidor envía `POST /api/v1/orders/{orderNumber}/readings`. La orden debe
+estar en estado 2 y activada; de lo contrario, se responde `409`.
+
+```json
+{"mass": 1200.0, "density": 0.55, "temperature": 24.5, "flow": 1800.0}
+```
+
+`mass` es la masa acumulada en kg, `density` se expresa en g/cm3, `temperature`
+en °C y `flow` en kg/h. Los cuatro campos son obligatorios y la densidad debe
+estar entre 0 y 1 g/cm3. Los campos faltantes, la densidad fuera de rango y los
+valores no finitos se responden con `400`.
+
+| Lectura | Respuesta | Efecto |
+|---|---|---|
+| Caudal o masa menor o igual a 0 | `200` con `accepted: false` | Se descarta: no cambia la orden ni el historial. |
+| Masa menor que la acumulada anterior | `200` con `accepted: false` | Se descarta: no cambia la orden ni el historial. |
+| Válida | `200` con `accepted: true` | Actualiza los últimos valores de la orden. |
+
+La primera lectura válida completa `startedAt` y cada lectura válida actualiza
+`finishedAt`. El historial guarda la primera lectura y luego una por intervalo; el
+campo `stored` de la respuesta indica si esa lectura se guardó.
+`GET /api/v1/orders/{orderNumber}/readings` devuelve ese historial.
+
+## Cierre, pesaje final y conciliación
+
+| Operación | Solicitud | Resultado |
+|---|---|---|
+| Cerrar la carga | `POST /api/v1/orders/{orderNumber}/close` con `{"observation":"Carga completa"}` o `{}` | Estado 2 → 3. Devuelve la orden e invalida el hash de activación. |
+| Pesaje final | `POST /api/v1/orders/{orderNumber}/final-weight` con `{"weight":23500,"observation":"Balanza final"}` | Estado 3 → 4. Guarda el peso bruto y la fecha, y devuelve la conciliación. |
+| Consultar la conciliación | `GET /api/v1/orders/{orderNumber}/reconciliation` | Solo en estado 4. No repite el pesaje ni genera transiciones. |
+
+El cierre necesita un cuerpo JSON, aunque sea `{}`: sin cuerpo responde `400`. Las
+observaciones son opcionales y admiten hasta 255 caracteres. El peso final es
+obligatorio, finito, mayor que 0, de hasta 1.000.000 kg y no menor que la tara; la
+igualdad con la tara es válida. Se puede cerrar sin lecturas: la masa cargada es 0
+y los promedios son `null`. Se conserva `finishedAt` de la última lectura válida;
+la fecha del cierre queda en su transición.
+
+Cierre, lecturas y pesaje final toman el mismo bloqueo pesimista sobre la orden.
+Si una lectura obtiene el bloqueo antes, termina antes del cierre; si lo obtiene
+después, encuentra el estado 3 y recibe `409`. Cada transición se registra en la
+misma transacción que el cambio de la orden, con el actor `LOADER` para el cierre
+y `TMS` para el pesaje final.
+
+Ejemplo ilustrativo de conciliación (los valores no provienen de una ejecución
+real):
+
+```json
+{
+  "id": 1,
+  "externalCode": "SAP-501",
+  "orderNumber": 501,
+  "tare": 8500.0,
+  "finalWeight": 23500.0,
+  "loadedProduct": 14950.0,
+  "netWeight": 15000.0,
+  "difference": 50.0,
+  "averageTemperature": 24.5,
+  "averageDensity": 0.55,
+  "averageFlow": 1800.0,
+  "unit": "kg"
+}
+```
+
+- `loadedProduct`: última masa aceptada de la orden, aunque esa lectura no se haya
+  guardado en el historial.
+- `netWeight`: peso final menos tara.
+- `difference`: neto de balanza menos producto cargado; conserva el signo.
+- `averageTemperature`, `averageDensity` y `averageFlow`: promedios de las lecturas
+  guardadas en el historial, no de todas las recibidas.
+- `unit`: unidad de los pesos y de la diferencia. La densidad se mantiene en g/cm3,
+  la temperatura en °C y el caudal en kg/h.
+
+## Qué se simula
+
+El proyecto implementa solo el backend. No hay integración real con SAP, con el
+TMS y su balanza, ni con el surtidor y su caudalímetro: sus mensajes se simulan
+con solicitudes HTTP desde la colección de Postman, Swagger o `curl`.
+
+Las API no tienen autenticación en esta etapa. El actor de cada transición lo fija
+el endpoint (`SAP`, `TMS` o `LOADER`), sin verificar quién envía la solicitud.
+
 ## Perfiles y variables de entorno
 
 | Variable | Predeterminado | Uso |
@@ -253,13 +354,21 @@ También es posible elegir el perfil y el puerto al ejecutar el JAR:
 java -jar target/integrador.jar --spring.profiles.active=prod --server.port=8081
 ```
 
+La propiedad `integrador.readings.storage-interval-seconds` define cada cuántos
+segundos se guarda una lectura en el historial. Vale `10` por defecto y se define
+en `application.properties`; también se puede cambiar al ejecutar el JAR:
+
+```shell
+java -jar target/integrador.jar --integrador.readings.storage-interval-seconds=30
+```
+
 ## Modelo y migraciones
 
 Los maestros comparten identidad y código externo mediante herencia JPA
 `JOINED`, con una tabla específica para cada tipo. Cada cisterna tiene una clave
 compuesta por camión y posición. Las órdenes incorporan control de versión y
-los repositorios ofrecen consultas con bloqueo para futuras operaciones de
-negocio.
+los repositorios ofrecen consultas con bloqueo, que usan la tara, la activación,
+las lecturas, el cierre y el pesaje final.
 
 Las migraciones se encuentran en
 `integrador/src/main/resources/db/migration` y se ejecutan en este orden:
@@ -270,6 +379,7 @@ Las migraciones se encuentran en
 | `V2` | Permite códigos externos nulos en maestros y órdenes. |
 | `V3` | Separa los tipos de maestros conservando identificadores y relaciones. |
 | `V4` | Permite tara y pesaje final nulos, para distinguir una orden sin pesar de un peso 0. |
+| `V5` | Permite últimos valores de lectura nulos, para distinguir una orden sin lecturas de una lectura en 0. |
 
 Hibernate usa `ddl-auto=validate`: los cambios de esquema se realizan mediante
 migraciones SQL, sin creación ni actualización automática de tablas por JPA.
@@ -302,12 +412,3 @@ postman/                            Colección y entorno de Postman
 El punto de entrada está en el paquete raíz para que Spring detecte los
 componentes de sus subpaquetes. Los paquetes reservados se documentan mediante
 `package-info.java`.
-
-
-## Lecturas de carga (commit 5)
-
-El surtidor envía `POST /api/v1/orders/{orderNumber}/readings` con `mass` (kg), `density` (g/cm3), `temperature` (°C) y `flow` (kg/h). La orden se identifica con su `orderNumber` interno. La densidad debe estar entre 0 y 1 g/cm3.
-
-Una lectura válida actualiza los últimos valores de la orden. La primera lectura válida completa `startedAt`; cada lectura válida actualiza `finishedAt`. El historial guarda la primera lectura y luego una por intervalo (10 segundos por defecto; configurable con `integrador.readings.storage-interval-seconds`). `GET /api/v1/orders/{orderNumber}/readings` devuelve ese historial.
-
-Caudal o masa no positivos, o una masa menor que la acumulada anterior, se responden como descartes (`accepted: false`) y no cambian la orden ni el historial. Densidad fuera de rango y campos faltantes son errores 400. La orden debe estar en estado 2 y activada.
