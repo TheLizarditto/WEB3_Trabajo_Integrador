@@ -44,24 +44,25 @@ import java.net.URI;
 import java.util.List;
 
 /**
- * Endpoints de órdenes de carga. Solo traduce HTTP ↔ negocio: no tiene try/catch porque las
- * excepciones las convierte en respuestas RestExceptionHandler.
+ * Endpoints del circuito de una orden, desde la recepción hasta la conciliación. Solo traduce
+ * HTTP ↔ negocio: no tiene try/catch porque las excepciones las convierte en respuestas
+ * RestExceptionHandler.
  *
  * Las URLs identifican la orden por su número (/orders/{orderNumber}) y no por el id interno:
- * el número es lo que conocen SAP y el TMS, y los próximos endpoints (tara, lecturas, cierre)
- * van a seguir el mismo formato /orders/{orderNumber}/...
+ * el número es lo que conocen SAP y el TMS. Los @Tag van numerados según el circuito porque Swagger
+ * UI los ordena alfabéticamente (springdoc.swagger-ui.tags-sorter=alpha).
  */
 @RestController
 @RequestMapping(Constants.URL_ORDERS)
 @RequiredArgsConstructor
-@Tag(name = "Órdenes", description = "Recepción y consulta de órdenes de carga")
 public class OrderRestController {
 
     private final IOrderBusiness orderBusiness;
 
     /** Recibe una orden de SAP y la da de alta en estado 1. Devuelve 201 con el header Location. */
+    @Tag(name = "1. Recepción", description = "SAP envía la orden y se sincronizan sus maestros")
     @Operation(
-            summary = "Recibir una orden desde SAP",
+            summary = "Recibir orden desde SAP",
             description =
                     "Crea la orden en estado 1 (pendiente de pesaje inicial) y sincroniza camión,"
                             + " chofer, cliente y producto: si no existen se crean, si existen se"
@@ -91,7 +92,8 @@ public class OrderRestController {
     }
 
     /** Devuelve la orden con ese número de orden. */
-    @Operation(summary = "Consultar una orden por número de orden")
+    @Tag(name = "7. Consultas", description = "Consulta de una orden en cualquier estado")
+    @Operation(summary = "Consultar una orden")
     @ApiResponse(responseCode = "200", description = "Orden encontrada")
     @ApiResponse(
             responseCode = "404",
@@ -107,8 +109,9 @@ public class OrderRestController {
     }
 
     /** Registra la tara que manda el TMS y devuelve la contraseña de activación. */
+    @Tag(name = "2. Pesaje inicial", description = "El TMS registra la tara y se genera la contraseña")
     @Operation(
-            summary = "Registrar la tara (pesaje inicial)",
+            summary = "Registrar la tara",
             description =
                     "Guarda el peso del camión vacío, genera una contraseña de activación de 5"
                             + " dígitos y pasa la orden a estado 2. La contraseña solo se devuelve"
@@ -136,8 +139,10 @@ public class OrderRestController {
         return orderBusiness.registerTare(orderNumber, request.getTare());
     }
 
+    /** Procesa una lectura del surtidor: la acepta o la descarta, y responde 200 en los dos casos. */
+    @Tag(name = "4. Lecturas", description = "El surtidor informa lecturas y se consulta su historial")
     @Operation(
-            summary = "Registrar una lectura de carga",
+            summary = "Registrar una lectura",
             description = "Recibe masa acumulada, densidad en g/cm3, temperatura y caudal. "
                     + "La primera lectura válida inicia la carga; el historial se guarda según "
                     + "integrador.readings.storage-interval-seconds.")
@@ -150,62 +155,88 @@ public class OrderRestController {
             content = @Content(schema = @Schema(implementation = StandartResponse.class)))
     @PostMapping("/{orderNumber}/readings")
     public ReadingResponse registerReading(
-            @Parameter(description = "Número interno de orden (orderNumber)", example = "501")
+            @Parameter(description = "Número de orden (el que mandó SAP)", example = "501")
                     @PathVariable long orderNumber,
             @Valid @RequestBody ReadingRequest request)
             throws NotFoundException, InvalidStateException, InvalidDataException {
         return orderBusiness.registerReading(orderNumber, request);
     }
 
-    @Operation(summary = "Consultar el historial muestreado de lecturas")
+    /** Devuelve las lecturas guardadas de la orden: no todas las recibidas, porque se muestrean. */
+    @Tag(name = "4. Lecturas", description = "El surtidor informa lecturas y se consulta su historial")
+    @Operation(summary = "Historial de lecturas")
     @ApiResponse(responseCode = "200", description = "Historial de lecturas")
     @ApiResponse(responseCode = "404", description = "No existe la orden",
             content = @Content(schema = @Schema(implementation = StandartResponse.class)))
     @GetMapping("/{orderNumber}/readings")
     public List<LoadDetail> readings(
-            @Parameter(description = "Número interno de orden (orderNumber)", example = "501")
+            @Parameter(description = "Número de orden (el que mandó SAP)", example = "501")
                     @PathVariable long orderNumber) throws NotFoundException {
         return orderBusiness.readings(orderNumber);
     }
 
-
-    @Operation(summary = "Cerrar la carga y pasar de estado 2 a 3",
-            description = "Bloquea nuevas lecturas e invalida la clave de activación.")
+    /** Cierra la carga y devuelve la orden, que pasa a estado 3 y ya no acepta lecturas. */
+    @Tag(name = "5. Cierre", description = "Se cierra la carga y no se aceptan más lecturas")
+    @Operation(summary = "Cerrar la carga",
+            description = "Pasa la orden de estado 2 a 3. Bloquea nuevas lecturas e invalida la"
+                    + " clave de activación.")
     @ApiResponse(responseCode = "200", description = "Carga cerrada")
-    @ApiResponse(responseCode = "400", description = "Observación inválida")
-    @ApiResponse(responseCode = "404", description = "No existe la orden")
-    @ApiResponse(responseCode = "409", description = "La orden no está en estado 2")
+    @ApiResponse(responseCode = "400", description = "Observación inválida o cuerpo que no es JSON",
+            content = @Content(schema = @Schema(implementation = StandartResponse.class)))
+    @ApiResponse(responseCode = "404", description = "No existe la orden",
+            content = @Content(schema = @Schema(implementation = StandartResponse.class)))
+    @ApiResponse(responseCode = "409", description = "La orden no está en estado 2",
+            content = @Content(schema = @Schema(implementation = StandartResponse.class)))
     @PostMapping("/{orderNumber}/close")
-    public Order close(@PathVariable long orderNumber, @Valid @RequestBody CloseRequest request)
+    public Order close(
+            @Parameter(description = "Número de orden (el que mandó SAP)", example = "501")
+                    @PathVariable long orderNumber,
+            @Valid @RequestBody CloseRequest request)
             throws NotFoundException, InvalidStateException {
         return orderBusiness.close(orderNumber, request.getObservation());
     }
 
-    @Operation(summary = "Registrar pesaje final y pasar de estado 3 a 4",
-            description = "El peso bruto final no puede ser menor que la tara. Devuelve la conciliación.")
+    /** Registra el peso final, pasa la orden a estado 4 y devuelve la conciliación. */
+    @Tag(name = "6. Pesaje final y conciliación", description = "El TMS registra el peso final y se consulta la conciliación")
+    @Operation(summary = "Registrar el pesaje final",
+            description = "Pasa la orden de estado 3 a 4. El peso bruto final no puede ser menor que"
+                    + " la tara. Devuelve la conciliación.")
     @ApiResponse(responseCode = "200", description = "Pesaje registrado y conciliación calculada")
-    @ApiResponse(responseCode = "400", description = "Peso u observación inválidos")
-    @ApiResponse(responseCode = "404", description = "No existe la orden")
-    @ApiResponse(responseCode = "409", description = "La orden no está en estado 3")
+    @ApiResponse(responseCode = "400", description = "Peso u observación inválidos",
+            content = @Content(schema = @Schema(implementation = StandartResponse.class)))
+    @ApiResponse(responseCode = "404", description = "No existe la orden",
+            content = @Content(schema = @Schema(implementation = StandartResponse.class)))
+    @ApiResponse(responseCode = "409", description = "La orden no está en estado 3",
+            content = @Content(schema = @Schema(implementation = StandartResponse.class)))
     @PostMapping("/{orderNumber}/final-weight")
-    public ReconciliationResponse finalWeight(@PathVariable long orderNumber,
+    public ReconciliationResponse finalWeight(
+            @Parameter(description = "Número de orden (el que mandó SAP)", example = "501")
+                    @PathVariable long orderNumber,
             @Valid @RequestBody FinalWeightRequest request)
             throws NotFoundException, InvalidStateException, InvalidDataException {
         return orderBusiness.finalWeight(orderNumber, request.getWeight(), request.getObservation());
     }
 
-    @Operation(summary = "Consultar la conciliación de una orden en estado 4",
-            description = "Masa cargada: última masa aceptada. Promedios: historial muestreado.")
+    /** Devuelve la conciliación de una orden finalizada, sin cambiar nada. */
+    @Tag(name = "6. Pesaje final y conciliación", description = "El TMS registra el peso final y se consulta la conciliación")
+    @Operation(summary = "Consultar la conciliación",
+            description = "Solo en estado 4. Masa cargada: última masa aceptada. Promedios: historial"
+                    + " muestreado.")
     @ApiResponse(responseCode = "200", description = "Conciliación recalculada")
-    @ApiResponse(responseCode = "404", description = "No existe la orden")
-    @ApiResponse(responseCode = "409", description = "La orden no está en estado 4")
+    @ApiResponse(responseCode = "404", description = "No existe la orden",
+            content = @Content(schema = @Schema(implementation = StandartResponse.class)))
+    @ApiResponse(responseCode = "409", description = "La orden no está en estado 4",
+            content = @Content(schema = @Schema(implementation = StandartResponse.class)))
     @GetMapping("/{orderNumber}/reconciliation")
-    public ReconciliationResponse reconciliation(@PathVariable long orderNumber)
+    public ReconciliationResponse reconciliation(
+            @Parameter(description = "Número de orden (el que mandó SAP)", example = "501")
+                    @PathVariable long orderNumber)
             throws NotFoundException, InvalidStateException {
         return orderBusiness.reconciliation(orderNumber);
     }
 
     /** Activa el surtidor con la contraseña de la orden y devuelve el preset. */
+    @Tag(name = "3. Activación", description = "El surtidor se activa con la contraseña y recibe el preset")
     @Operation(
             summary = "Activar el surtidor",
             description =
